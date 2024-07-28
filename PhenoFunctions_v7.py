@@ -11,7 +11,7 @@ import logging
 import scanpy.external as sce
 import tempfile
 import matplotlib
-#import scanorama
+import scanorama
 import scipy
 import matplotlib.pyplot as plt
 from sklearn.preprocessing import MinMaxScaler
