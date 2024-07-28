@@ -21,6 +21,7 @@ import subprocess
 import numpy as np
 from scipy.cluster.hierarchy import dendrogram, linkage
 import scprep
+import anndata as ad
 from pypdf import PdfWriter, PdfReader, PageObject, Transformation
 import flowsom as fs
 matplotlib.use('Agg')
@@ -95,7 +96,7 @@ class Cytophenograph:
             self.knn = knn
             self.resolution = resolution
         if self.tool == "FlowSOM":
-            self.maxclus = str(maxclus)
+            self.maxclus = int(maxclus)
             self.flowsomDF = pd.DataFrame()
         self.listmarkerplot = None
         self.concatenate_fcs = None
@@ -425,6 +426,7 @@ class Cytophenograph:
         """
         if self.runtime == 'Full':
             # create output directory
+            self.outfig = self.output_folder
             self.UMAP_folder = "/".join([self.outfig, "UMAP"])
             self.createdir(self.UMAP_folder)
             sc.settings.figdir = self.UMAP_folder
@@ -711,47 +713,83 @@ class Cytophenograph:
             # self.log.info("Impossible to complete Flow Auto QC. Check Time channel.")
             pass
 
+    import numpy as np
+    import pandas as pd
+    import scanpy as sc
+    import scprep
+    import harmonypy as sce
+
     def runphenograph(self):
         """
-        Function for execution of phenograph analysis
-        :return:
+        Function for executing Phenograph clustering analysis.
+        :return: Updated AnnData object with Phenograph clustering results.
         """
         self.log.warning("PART 2")
         self.log.info("Phenograph Clustering")
-        self.createfcs()
+
+        # Create FCS files (assuming this is a necessary step before clustering)
+        # self.createfcs()
+
+        # Log markers used for Phenograph clustering
         self.log.info("Markers used for Phenograph clustering:")
-        for i in self.markertoinclude:
-            self.log.info(" + " + i)
-        if len(self.marker_array):
+        for marker in self.markertoinclude:
+            self.log.info(" + " + marker)
+
+        # Log markers excluded from Phenograph clustering
+        if self.marker_array:
             self.log.info("Markers excluded for Phenograph clustering:")
-        for i in self.marker_array:
-            self.log.info(" - " + i)
+            for marker in self.marker_array:
+                self.log.info(" - " + marker)
+
+        # Subset AnnData to include only the selected markers
         self.adata = self.adata[:, self.markertoinclude]
-        sc.tl.pca(self.adata, svd_solver='arpack',n_comps=len(self.adata.var.index)-1)
+
+        # Perform PCA
+        sc.tl.pca(self.adata, svd_solver = 'arpack', n_comps = len(self.adata.var.index) - 1)
+
+        # Determine the number of PCs to use based on cumulative variance explained
         min_cml_frac = 0.3
         cml_var_explained = np.cumsum(self.adata.uns['pca']['variance_ratio'])
         self.n_pcs = next(idx for idx, cml_frac in enumerate(cml_var_explained) if cml_frac > min_cml_frac)
+
+        # Scale the data
         sc.pp.scale(self.adata, max_value = 10)
-        if self.scanorama is True:
+
+        # Perform batch correction if needed
+        if self.scanorama:
             sce.pp.harmony_integrate(self.adata, self.batchcov)
             self.adata.obsm['X_pca'] = self.adata.obsm['X_pca_harmony']
-        # if (self.filetype == "FCS") and (self.arcsinh == True): #TO DO
-        #     self.adata = scprep.transform.arcsinh(self.adata.X, cofactor=150) #TO DO
+
+        # If the filetype is FCS and arcsinh transformation is needed (TODO)
+        # if self.filetype == "FCS" and self.arcsinh:
+        #     self.adata.X = scprep.transform.arcsinh(self.adata.X, cofactor=150)
+
+        # Compute the neighborhood graph
         sc.pp.neighbors(self.adata, n_neighbors = self.n_neighbors, metric = "cosine")
-        sc.tl.umap(self.adata,min_dist = self.mindist, spread=self.spread)
-        self.communities, self.graph, self.Q = sce.tl.phenograph(pd.DataFrame(self.adata.obsm['X_pca']),
-                                                              k = int(self.k_coef),
-                                                              seed = 42,
-                                                              clustering_algo = "leiden",
-                                                              directed = True,
-                                                              primary_metric = "euclidean",
-                                                              q_tol = 0.05,
-                                                              prune = False, min_cluster_size = 1,
-                                                              n_jobs = int(self.thread))
+
+        # Compute UMAP
+        sc.tl.umap(self.adata, min_dist = self.mindist, spread = self.spread)
+
+        # Run Phenograph clustering
+        self.communities, self.graph, self.Q = sce.tl.phenograph(
+            pd.DataFrame(self.adata.obsm['X_pca']),
+            k = int(self.k_coef),
+            seed = 42,
+            clustering_algo = "leiden",
+            directed = True,
+            primary_metric = "euclidean",
+            q_tol = 0.05,
+            prune = False,
+            min_cluster_size = 1,
+            n_jobs = int(self.thread)
+        )
+
+        # Add Phenograph results to the original AnnData object
         self.adata.obs['pheno_leiden'] = pd.Categorical(self.communities)
         self.adata.obs['cluster'] = pd.Categorical(self.communities)
+
+        # Run additional steps if the runtime mode is 'Full'
         if self.runtime == 'Full':
-            # self.runumap()
             self.generation_concatenate()
             self.plot_umap()
             self.plot_umap_expression()
@@ -761,6 +799,7 @@ class Cytophenograph:
             self.matrixplot()
         elif self.runtime == 'Clustering':
             pass
+
         return self.adata
 
     def runvia(self):
@@ -830,42 +869,131 @@ class Cytophenograph:
 
     def runflowsom(self):
         """
-        function for execution of
-        :return:
+        Executes FlowSOM clustering on the dataset.
+        :return: Updated AnnData object with FlowSOM clustering results.
         """
         self.log.warning("PART 2")
         self.log.info("FlowSOM Clustering")
-        self.createfcs()
-        self.log.info("Markers used for FlowSOM clustering:")
-        for i in self.markertoinclude:
-            self.log.info(" + " + i)
-        if len(self.marker_array):
-            self.log.info("Markers excluded for FlowSOM clustering:")
-        for i in self.marker_array:
-            self.log.info(" - " + i)
-        if (self.filetype == "FCS") and (self.arcsinh == True):
-            self.adata = scprep.transform.arcsinh(self.adata.X, cofactor=150)
-        else:
-            pass
-        if self.runtime != 'Clustering':
-            if self.scanorama is True:
-                self.adata = self.correct_scanorama()
-            else:
-                self.adata = self.adata[:, self.markertoinclude].copy()
-                self.adata.layers['scaled'] = sc.pp.scale(self.adata, max_value = 6,
-                                                                 zero_center = True, copy = True).X
-                self.adata.X = self.adata.layers['scaled']
-        else:
-            if self.scanorama is True:
-                self.adata = self.correct_scanorama()
-            else:
-                self.adata = self.adata[:, self.markertoinclude].copy()
-                self.adata.layers['scaled'] = sc.pp.scale(self.adata, max_value = 6,
-                                                                 zero_center = True, copy = True).X
-                self.adata.X = self.adata.layers['scaled']
-        self.adata.X = self.adata.layers['raw_value']
-        ###
 
+        # Logging markers used and excluded for FlowSOM clustering
+        self.log.info("Markers used for FlowSOM clustering:")
+        for marker in self.markertoinclude:
+            self.log.info(" + " + marker)
+
+        if self.marker_array:
+            self.log.info("Markers excluded for FlowSOM clustering:")
+            for marker in self.marker_array:
+                self.log.info(" - " + marker)
+
+        # Subset AnnData to include only the selected markers
+        self.adata = self.adata[:, self.markertoinclude]
+
+        # Add a new column to `adata.var` from 0 to the length of `adata.var`
+        self.adata.var['n'] = range(len(self.adata.var))
+
+        # Perform PCA
+        sc.tl.pca(self.adata, svd_solver = 'arpack', n_comps = len(self.adata.var.index) - 1)
+
+        # Determine the number of PCs to use based on cumulative variance explained
+        min_cml_frac = 0.3
+        cml_var_explained = np.cumsum(self.adata.uns['pca']['variance_ratio'])
+        self.n_pcs = next(idx for idx, cml_frac in enumerate(cml_var_explained) if cml_frac > min_cml_frac)
+
+        # Scale the data
+        sc.pp.scale(self.adata, max_value = 10)
+
+        # Perform batch correction if needed
+        if self.scanorama:
+            sce.pp.harmony_integrate(self.adata, self.batchcov)
+            sc.pp.neighbors(self.adata, n_neighbors = self.n_neighbors, metric = "cosine", use_rep = "X_pca_harmony")
+        else:
+            sc.pp.neighbors(self.adata, n_neighbors = self.n_neighbors, metric = "cosine")
+
+        # Compute the neighborhood graph
+        sc.pp.neighbors(self.adata, n_neighbors = self.n_neighbors, metric = "cosine")
+
+        # Compute UMAP
+        sc.tl.umap(self.adata, min_dist = self.mindist, spread = self.spread)
+
+        # Create a new AnnData object for FlowSOM with PCA results
+        self.adataflowsom = ad.AnnData(self.adata.obsm['X_pca'])
+        self.adataflowsom.obs = self.adata.obs.copy()
+        self.adataflowsom.var['n'] = range(len(self.adataflowsom.var))
+
+        # Run FlowSOM
+        fsom = fs.FlowSOM(self.adataflowsom, cols_to_use = list(range(len(self.adataflowsom.var))),
+                          xdim = 10,
+                          ydim = 10, n_clusters = 10, seed = 42)
+
+        # Add FlowSOM results to the original AnnData object
+        self.adata.obs['pheno_leiden'] = pd.Categorical(fsom.metacluster_labels)
+        self.adata.obs['cluster'] = pd.Categorical(fsom.metacluster_labels)
+        self.adata.obs['MetaCluster_Flowsom'] = pd.Categorical(fsom.cluster_labels)
+
+        # Remove unnecessary columns from observations
+        columns_to_remove = ['clustering', 'distance_to_bmu', 'metaclustering']
+        for col in columns_to_remove:
+            if col in self.adata.obs:
+                del self.adata.obs[col]
+
+        # Run additional steps if the runtime mode is 'Full'
+        if self.runtime == 'Full':
+            self.runumap()
+            self.generation_concatenate()
+            self.plot_umap()
+            self.plot_umap_expression()
+            self.plot_frequency()
+            self.plot_cell_clusters()
+            self.plot_cell_obs()
+            self.matrixplot()
+        elif self.runtime == 'Clustering':
+            pass
+
+        return self.adata
+
+
+
+        #### old method
+        # self.adata.write("/home/lugli/spuccio/Projects/SP026_dev_cytophenograph/Cytophenograph7/output_test/testflowsom.h5ad")
+        # fsom = fs.FlowSOM(
+        #     self.adata, cols_to_use = list(range(len(self.adata.var))), xdim = 10, ydim = 10,
+        #     n_clusters =self.maxclus, seed = 42)
+        # self.adata.obs['pheno_leiden'] = pd.Categorical(fsom.metacluster_labels)
+        # self.adata.obs['cluster'] = pd.Categorical(fsom.metacluster_labels)
+        # self.adata.obs['MetaCluster_Flowsom'] = pd.Categorical(fsom.cluster_labels)
+        # del self.adata.obs['clustering']
+        # del self.adata.obs['distance_to_bmu']
+        # del self.adata.obs['metaclustering']
+
+        #
+        # if (self.filetype == "FCS") and (self.arcsinh == True):
+        #     self.adata = scprep.transform.arcsinh(self.adata.X, cofactor=150)
+        # else:
+        #     pass
+        # if self.runtime != 'Clustering':
+        #     if self.scanorama is True:
+        #         self.adata = self.correct_scanorama()
+        #     else:
+        #         self.adata = self.adata[:, self.markertoinclude].copy()
+        #         self.adata.layers['scaled'] = sc.pp.scale(self.adata, max_value = 6,
+        #                                                          zero_center = True, copy = True).X
+        #         self.adata.X = self.adata.layers['scaled']
+        # else:
+        #     if self.scanorama is True:
+        #         self.adata = self.correct_scanorama()
+        #     else:
+        #         self.adata = self.adata[:, self.markertoinclude].copy()
+        #         self.adata.layers['scaled'] = sc.pp.scale(self.adata, max_value = 6,
+        #                                                          zero_center = True, copy = True).X
+        #         self.adata.X = self.adata.layers['scaled']
+        #self.adata.X = self.adata.layers['raw_value']
+        ###
+        #self.log.info(print(self.adata))
+        #self.log.info(print(self.adata.X))
+        #self.log.info(print(self.adata.var))
+        #print(self.adata)
+        #print("####")
+        #print(self.adata.X)
         # self.tmp = self.adata.to_df()
         # self.tmp = self.tmp.astype(int)
         # self.tmp.to_csv(self.output_folder+"/tmp.csv", header=True,
@@ -1075,8 +1203,8 @@ class Cytophenograph:
                 self.tmp['VIA'] = _
             else:
                 self.tmp['FlowSOM'] = _
-                self.tmp['MetaCluster_FlowSOM'] = self.adata[self.adata.obs['cluster'].isin([int(_)]), :].obs[
-                    'Cluster_Flowsom'].values
+                #self.tmp['MetaCluster_FlowSOM'] = self.adata[self.adata.obs['metaclustering'].isin([int(_)]), :].obs[
+                #    'clustering'].values
             self.tmp.to_csv("/".join([self.output_folder, "".join(["Cluster", self.tool]),
                                       "".join([self.analysis_name, "_", str(_), ".csv"])]), header=True, index=False)
             fcsy.write_fcs(self.tmp, "/".join([self.output_folder, "".join(["Cluster", self.tool]),
@@ -1102,10 +1230,11 @@ class Cytophenograph:
             self.tmp['UMAP_2'] = self.adata.obsm['X_umap'][:, 1]
         if self.runtime != 'UMAP':
             self.tmp[self.tool] = self.adata.obs['cluster'].values
-            if self.tool == 'FlowSOM':
-                self.tmp['MetaCluster_FlowSOM'] = self.adata.obs['Cluster_Flowsom'].values
-            else:
-                pass
+
+            # if self.tool == 'FlowSOM':
+            #     self.tmp['MetaCluster_FlowSOM'] = self.adata.obs['MetaCluster_FlowSOM'].values
+            # else:
+            #     pass
             self.tmp["cluster"] = self.adata.obs['cluster'].values
             # get unique filenames
             unique_filename = self.adata.obs['Sample'].unique()
