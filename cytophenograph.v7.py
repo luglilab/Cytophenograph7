@@ -2,7 +2,7 @@ import sys, traceback
 import optparse
 from PhenoFunctions_v7 import *
 
-parser = optparse.OptionParser(usage='python ./Cytophenograph/cytophenograph.v5.py -i $abs_path/Cytophenograph/Test_dataset/CD8_Panel_II_channelvalues_GA_downSampled/ -o $abs_path/Cytophenograph/output_test -k 300 -m $abs_path/Cytophenograph/Test_dataset/CD8_bulk_markers_to_exclude.txt -n Test -t 10 -p $abs_path/Cytophenograph/Test_dataset/Info_file_bulk_Test.xlsx -c VIA', version='5.0')
+parser = optparse.OptionParser(usage='python ./Cytophenograph/cytophenograph.v7.py -i $abs_path/Cytophenograph/Test_dataset/CD8_Panel_II_channelvalues_GA_downSampled/ -o $abs_path/Cytophenograph/output_test -k 300 -m $abs_path/Cytophenograph/Test_dataset/CD8_bulk_markers_to_exclude.txt -n Test -t 10 -p $abs_path/Cytophenograph/Test_dataset/Info_file_bulk_Test.xlsx -c VIA', version='7.0')
 parser.add_option('-a', action="store_true", dest="arcsin", default=False,
                   help='Perform arcsinh transformation on data.')
 parser.add_option('-b', action="store_true", dest="batch", default=False,
