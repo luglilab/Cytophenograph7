@@ -7,7 +7,6 @@ import pandas as pd
 import phenograph as pg
 import scanpy as sc
 import pyVIA.core as via
-import umap
 import logging
 import scanpy.external as sce
 import tempfile
