@@ -11,10 +11,9 @@ import logging
 import scanpy.external as sce
 import tempfile
 import matplotlib
-import scanorama
 import scipy
 import matplotlib.pyplot as plt
-from sklearn.preprocessing import MinMaxScaler
+from sklearn.preprocessing import MinMaxScaler,StandardScaler
 import fcsy
 from fcsy import DataFrame
 import subprocess
@@ -22,6 +21,8 @@ import numpy as np
 from scipy.cluster.hierarchy import dendrogram, linkage
 import scprep
 import anndata as ad
+import pacmap
+import umap
 from pypdf import PdfWriter, PdfReader, PageObject, Transformation
 import flowsom as fs
 matplotlib.use('Agg')
@@ -101,7 +102,8 @@ class Cytophenograph:
         self.listmarkerplot = None
         self.concatenate_fcs = None
         self.path_flowai = os.path.dirname(os.path.realpath(__file__)) + '/flowai.Rscript'
-        self.path_flowsom = os.path.dirname(os.path.realpath(__file__)) + '/flowsom.Rscript'
+        # self.path_flowsom = os.path.dirname(os.path.realpath(__file__)) + '/flowsom.Rscript'
+        self.path_cycombine = os.path.dirname(os.path.realpath(__file__)) + '/cycombine.Rscript'
         self.mindist = float(mindist)
         self.spread = float(spread)
         self.downsampling = downsampling
@@ -664,10 +666,10 @@ class Cytophenograph:
         if self.runtime != 'UMAP':
             sc.pl.matrixplot(self.adata, list(self.adata.var_names), "pheno_leiden",
                              dendrogram = True, vmin = -2, vmax = 2, cmap = 'RdBu_r',
-                             show = False, swap_axes = False, return_fig = False,
+                             show = False, swap_axes = False, return_fig = False,use_raw = False, log=False,
                              save = ".".join(["matrixplot_mean_z_score", self.fileformat]))
             sc.pl.matrixplot(self.adata, list(self.adata.var_names), "pheno_leiden",
-                             dendrogram = True, vmin = -2, vmax = 2, cmap = 'RdBu_r',
+                             dendrogram = True, vmin = -2, vmax = 2, cmap = 'RdBu_r', use_raw = False, log=False,
                              show = False, swap_axes = False, return_fig = False,
                              save = ".".join(["matrixplot_mean_z_score", 'svg']))
             sc.pl.matrixplot(self.adata, list(self.adata.var_names), "pheno_leiden",
@@ -713,12 +715,6 @@ class Cytophenograph:
             # self.log.info("Impossible to complete Flow Auto QC. Check Time channel.")
             pass
 
-    import numpy as np
-    import pandas as pd
-    import scanpy as sc
-    import scprep
-    import harmonypy as sce
-
     def runphenograph(self):
         """
         Function for executing Phenograph clustering analysis.
@@ -758,14 +754,18 @@ class Cytophenograph:
         # Perform batch correction if needed
         if self.scanorama:
             sce.pp.harmony_integrate(self.adata, self.batchcov)
-            self.adata.obsm['X_pca'] = self.adata.obsm['X_pca_harmony']
+            # Compute the neighborhood graph
+            sc.pp.neighbors(self.adata, n_neighbors = self.n_neighbors, metric = "cosine", use_rep = "X_pca_harmony",
+                            n_pcs=self.n_pcs)
+        else:
+            # Compute the neighborhood graph
+            sc.pp.neighbors(self.adata, n_neighbors = self.n_neighbors, metric = "cosine", n_pcs=self.n_pcs)
 
         # If the filetype is FCS and arcsinh transformation is needed (TODO)
         # if self.filetype == "FCS" and self.arcsinh:
         #     self.adata.X = scprep.transform.arcsinh(self.adata.X, cofactor=150)
 
-        # Compute the neighborhood graph
-        sc.pp.neighbors(self.adata, n_neighbors = self.n_neighbors, metric = "cosine")
+
 
         # Compute UMAP
         sc.tl.umap(self.adata, min_dist = self.mindist, spread = self.spread)
@@ -886,50 +886,69 @@ class Cytophenograph:
                 self.log.info(" - " + marker)
 
         # Subset AnnData to include only the selected markers
+        self.adataback = self.adata
         self.adata = self.adata[:, self.markertoinclude]
 
         # Add a new column to `adata.var` from 0 to the length of `adata.var`
         self.adata.var['n'] = range(len(self.adata.var))
 
+        # Save the data and observations to CSV
+        data_df = self.adata[:, self.markertoinclude].to_df()
+        data_df['batch'] = self.adata[:, self.markertoinclude].obs[self.batchcov]
+        #obs_df = self.adata[:, self.markertoinclude].obs[self.batchcov]
+        #merged_df = pd.merge(data_df, obs_df, left_index = True, right_index = True)
+
+        # Save to CSV
+        data_df.to_csv(self.output_folder+"/tmp.csv", index = False)
+
+        # Perform batch correction if needed
+        if self.scanorama:
+            # Construct the command to execute the R script
+            subprocess.check_call(['Rscript', '--vanilla',
+                                    self.path_cycombine, self.output_folder+"/tmp.csv",
+                                    self.output_folder,str(self.maxclus),str(self.adata.shape[1])],
+                                  stdout=self.fnull, stderr=self.fnull)
+            # Load the corrected data back into AnnData
+            corrected_csv_path = f"{self.output_folder}/corrected_data.csv"
+            corrected_data = pd.read_csv(corrected_csv_path)
+            corrected_data = corrected_data.drop(columns = ["id", "label", "batch"])
+            self.adatacorrected = ad.AnnData(corrected_data)
+            self.adata.layers['corrected'] = self.adatacorrected.X
+            self.adata.X = self.adata.layers['corrected']
+
         # Perform PCA
         sc.tl.pca(self.adata, svd_solver = 'arpack', n_comps = len(self.adata.var.index) - 1)
 
         # Determine the number of PCs to use based on cumulative variance explained
-        min_cml_frac = 0.3
+        min_cml_frac = 0.5
         cml_var_explained = np.cumsum(self.adata.uns['pca']['variance_ratio'])
         self.n_pcs = next(idx for idx, cml_frac in enumerate(cml_var_explained) if cml_frac > min_cml_frac)
 
         # Scale the data
-        sc.pp.scale(self.adata, max_value = 10)
+        scaler = StandardScaler()
+        self.adata.X = scaler.fit_transform(self.adata.X)
+        # sc.pp.scale(self.adata, max_value = 10)
 
-        # Perform batch correction if needed
-        if self.scanorama:
-            sce.pp.harmony_integrate(self.adata, self.batchcov)
-            sc.pp.neighbors(self.adata, n_neighbors = self.n_neighbors, metric = "cosine", use_rep = "X_pca_harmony")
-        else:
-            sc.pp.neighbors(self.adata, n_neighbors = self.n_neighbors, metric = "cosine")
-
-        # Compute the neighborhood graph
-        sc.pp.neighbors(self.adata, n_neighbors = self.n_neighbors, metric = "cosine")
-
-        # Compute UMAP
-        sc.tl.umap(self.adata, min_dist = self.mindist, spread = self.spread)
+        self.adata.obsm['X_umap'] = umap.UMAP().fit_transform(self.adata.X)
 
         # Create a new AnnData object for FlowSOM with PCA results
-        self.adataflowsom = ad.AnnData(self.adata.obsm['X_pca'])
-        self.adataflowsom.obs = self.adata.obs.copy()
-        self.adataflowsom.var['n'] = range(len(self.adataflowsom.var))
-
+        # self.adataflowsom = ad.AnnData(self.adata.obsm['X_pca'])
+        # self.adataflowsom.obs = self.adata.obs.copy()
+        # self.adataflowsom.var['n'] = range(len(self.adataflowsom.var))
+        self.adata.var['n'] = range(len(self.adata.var))
         # Run FlowSOM
-        fsom = fs.FlowSOM(self.adataflowsom, cols_to_use = list(range(len(self.adataflowsom.var))),
+        fsom = fs.FlowSOM(self.adata, cols_to_use = list(range(len(self.adata.var))),
                           xdim = 10,
-                          ydim = 10, n_clusters = 10, seed = 42)
+                          ydim = 10, n_clusters = self.maxclus, seed = 42)
 
         # Add FlowSOM results to the original AnnData object
         self.adata.obs['pheno_leiden'] = pd.Categorical(fsom.metacluster_labels)
         self.adata.obs['cluster'] = pd.Categorical(fsom.metacluster_labels)
         self.adata.obs['MetaCluster_Flowsom'] = pd.Categorical(fsom.cluster_labels)
-
+        self.adataback.obs['pheno_leiden'] = pd.Categorical(fsom.metacluster_labels)
+        self.adataback.obs['cluster'] = pd.Categorical(fsom.metacluster_labels)
+        self.adataback.obs['MetaCluster_Flowsom'] = pd.Categorical(fsom.cluster_labels)
+        self.adataback.obsm['X_umap'] = self.adata.obsm['X_umap']
         # Remove unnecessary columns from observations
         columns_to_remove = ['clustering', 'distance_to_bmu', 'metaclustering']
         for col in columns_to_remove:
@@ -948,7 +967,6 @@ class Cytophenograph:
             self.matrixplot()
         elif self.runtime == 'Clustering':
             pass
-
         return self.adata
 
 
@@ -1188,6 +1206,7 @@ class Cytophenograph:
         """
         # make dir
         self.createdir("/".join([self.output_folder, "".join(["Cluster", self.tool])]))
+        self.adata = self.adataback
         self.adata.obs['cluster'] = self.adata.obs['cluster'].astype(int)
         for _ in range(self.adata.obs['cluster'].unique().min(), self.adata.obs['cluster'].unique().max() + 1):
             self.tmp = self.adata[self.adata.obs['cluster'].isin([_])].to_df()
@@ -1377,7 +1396,7 @@ class Cytophenograph:
                 self.adata.write("/".join([self.output_folder, ".".join([self.analysis_name, "h5ad"])]))
                 try:
                     os.remove("/".join([self.output_folder, "tmp.csv"]))
-                    os.remove("/".join([self.output_folder, "output_flowsom.csv"]))
+                    os.remove("/".join([self.output_folder, "corrected_data.csv"]))
                 except:
                     pass
         else:

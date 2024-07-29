@@ -1,0 +1,37 @@
+library(cyCombine)
+library(magrittr)
+library(readr)
+
+# Set seed for reproducibility
+set.seed(42)
+
+# Suppress warnings
+options(warn = -1)
+
+# Get command line arguments
+args <- commandArgs(trailingOnly = TRUE)
+csv <- args[1]
+outputfolder <- args[2]
+NClus <- as.integer(args[3])  # Ensure NClus is read as an integer
+num_markers <- as.integer(args[4])  # Number of marker columns to use
+
+# Read the data from the CSV file
+tibble_data <- read_csv(csv)
+
+# Determine markers based on the number specified
+if (num_markers > ncol(tibble_data)) {
+    stop("The specified number of markers exceeds the number of columns in the data.")
+}
+markers <- colnames(tibble_data)[1:num_markers]
+
+# Perform batch correction
+corrected <- tibble_data %>%
+    batch_correct(markers = markers,
+                  norm_method = "scale",
+                  rlen = NClus)
+
+# Save the corrected data to the output folder
+output_path <- file.path(outputfolder, "corrected_data.csv")
+write_csv(corrected, output_path)
+
+cat("Batch correction complete. Corrected data saved to ", output_path, "\n")
