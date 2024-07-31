@@ -715,81 +715,106 @@ class Cytophenograph:
             # self.log.info("Impossible to complete Flow Auto QC. Check Time channel.")
             pass
 
-    def runphenograph(self):
+    def runflowsom(self):
         """
-        Function for executing Phenograph clustering analysis.
-        :return: Updated AnnData object with Phenograph clustering results.
+        Executes FlowSOM clustering on the dataset.
+        :return: Updated AnnData object with FlowSOM clustering results.
         """
+
+        # Log the start of the FlowSOM clustering process
         self.log.warning("PART 2")
-        self.log.info("Phenograph Clustering")
+        self.log.info("FlowSOM Clustering")
 
-        # Create FCS files (assuming this is a necessary step before clustering)
-        # self.createfcs()
-
-        # Log markers used for Phenograph clustering
-        self.log.info("Markers used for Phenograph clustering:")
+        # Log markers included and excluded for FlowSOM clustering
+        self.log.info("Markers used for FlowSOM clustering:")
         for marker in self.markertoinclude:
             self.log.info(" + " + marker)
 
-        # Log markers excluded from Phenograph clustering
         if self.marker_array:
-            self.log.info("Markers excluded for Phenograph clustering:")
+            self.log.info("Markers excluded for FlowSOM clustering:")
             for marker in self.marker_array:
                 self.log.info(" - " + marker)
 
         # Subset AnnData to include only the selected markers
-        self.adata = self.adata[:, self.markertoinclude]
+        self.adataback = self.adata  # Backup the original data
+        self.adata = self.adata[:, self.markertoinclude]  # Subset to markers
 
-        # Perform PCA
+        # Add an index column to `adata.var` to keep track of variables
+        self.adata.var['n'] = range(len(self.adata.var))
+
+        # Save the data and observation annotations to CSV
+        data_df = self.adata[:, self.markertoinclude].to_df()
+        data_df['batch'] = self.adata[:, self.markertoinclude].obs[self.batchcov]
+        data_df.to_csv(self.output_folder + "/tmp.csv", index = False)
+
+        # Perform batch correction using an external R script if specified
+        if self.scanorama:
+            # Construct the command to execute the R script for batch correction
+            subprocess.check_call(
+                ['Rscript', '--vanilla', self.path_cycombine,
+                 self.output_folder + "/tmp.csv", self.output_folder,
+                 str(self.maxclus), str(self.adata.shape[1])],
+                stdout = self.fnull, stderr = self.fnull
+            )
+
+            # Load the corrected data back into AnnData
+            corrected_csv_path = f"{self.output_folder}/corrected_data.csv"
+            corrected_data = pd.read_csv(corrected_csv_path)
+            corrected_data = corrected_data.drop(columns = ["id", "label", "batch"])
+            self.adatacorrected = ad.AnnData(corrected_data)
+            self.adata.layers['corrected'] = self.adatacorrected.X
+            self.adata.X = self.adata.layers['corrected']
+
+        # Perform PCA to reduce dimensionality
         sc.tl.pca(self.adata, svd_solver = 'arpack', n_comps = len(self.adata.var.index) - 1)
 
-        # Determine the number of PCs to use based on cumulative variance explained
-        min_cml_frac = 0.3
+        # Determine the number of principal components (PCs) to use based on variance explained
+        min_cml_frac = 0.5
         cml_var_explained = np.cumsum(self.adata.uns['pca']['variance_ratio'])
         self.n_pcs = next(idx for idx, cml_frac in enumerate(cml_var_explained) if cml_frac > min_cml_frac)
 
-        # Scale the data
-        sc.pp.scale(self.adata, max_value = 10)
+        # Standardize the data
+        scaler = StandardScaler()
+        self.adata.X = scaler.fit_transform(self.adata.X)
 
-        # Perform batch correction if needed
-        if self.scanorama:
-            sce.pp.harmony_integrate(self.adata, self.batchcov)
-            # Compute the neighborhood graph
-            sc.pp.neighbors(self.adata, n_neighbors = self.n_neighbors, metric = "cosine", use_rep = "X_pca_harmony",
-                            n_pcs=self.n_pcs)
-        else:
-            # Compute the neighborhood graph
-            sc.pp.neighbors(self.adata, n_neighbors = self.n_neighbors, metric = "cosine", n_pcs=self.n_pcs)
+        # Perform UMAP dimensionality reduction
+        self.adata.obsm['X_umap'] = umap.UMAP().fit_transform(self.adata.X)
 
-        # If the filetype is FCS and arcsinh transformation is needed (TODO)
-        # if self.filetype == "FCS" and self.arcsinh:
-        #     self.adata.X = scprep.transform.arcsinh(self.adata.X, cofactor=150)
-
-
-
-        # Compute UMAP
-        sc.tl.umap(self.adata, min_dist = self.mindist, spread = self.spread)
-
-        # Run Phenograph clustering
-        self.communities, self.graph, self.Q = sce.tl.phenograph(
-            pd.DataFrame(self.adata.obsm['X_pca']),
-            k = int(self.k_coef),
-            seed = 42,
-            clustering_algo = "leiden",
-            directed = True,
-            primary_metric = "euclidean",
-            q_tol = 0.05,
-            prune = False,
-            min_cluster_size = 1,
-            n_jobs = int(self.thread)
+        # Create and run FlowSOM clustering
+        fsom = fs.FlowSOM(
+            self.adata, cols_to_use = list(range(len(self.adata.var))),
+            xdim = 10, ydim = 10, n_clusters = self.maxclus, seed = 42
         )
 
-        # Add Phenograph results to the original AnnData object
-        self.adata.obs['pheno_leiden'] = pd.Categorical(self.communities)
-        self.adata.obs['cluster'] = pd.Categorical(self.communities)
+        # Save UMAP plots and FlowSOM cluster stars
+        self.UMAP_folder = os.path.join(self.output_folder, "UMAP")
+        self.createdir(self.UMAP_folder)
+        pl = fs.pl.plot_stars(
+            fsom, background_values = fsom.get_cluster_data().obs["metaclustering"],
+            view = "MST", equal_node_size = False
+        )
+        pl.savefig(os.path.join(self.UMAP_folder, "FlowSOMplotstars.pdf"))
 
-        # Run additional steps if the runtime mode is 'Full'
+        # Add FlowSOM results to the original AnnData object
+        self.adata.obs['pheno_leiden'] = pd.Categorical(fsom.metacluster_labels)
+        self.adata.obs['cluster'] = pd.Categorical(fsom.metacluster_labels)
+        self.adata.obs['MetaCluster_Flowsom'] = pd.Categorical(fsom.cluster_labels)
+
+        # Also update the backup AnnData object with clustering results
+        self.adataback.obs['pheno_leiden'] = pd.Categorical(fsom.metacluster_labels)
+        self.adataback.obs['cluster'] = pd.Categorical(fsom.metacluster_labels)
+        self.adataback.obs['MetaCluster_Flowsom'] = pd.Categorical(fsom.cluster_labels)
+        self.adataback.obsm['X_umap'] = self.adata.obsm['X_umap']
+
+        # Remove unnecessary columns from observations
+        columns_to_remove = ['clustering', 'distance_to_bmu', 'metaclustering']
+        for col in columns_to_remove:
+            if col in self.adata.obs:
+                del self.adata.obs[col]
+
+        # Execute additional analyses if the runtime mode is 'Full'
         if self.runtime == 'Full':
+            self.runumap()
             self.generation_concatenate()
             self.plot_umap()
             self.plot_umap_expression()
@@ -797,9 +822,12 @@ class Cytophenograph:
             self.plot_cell_clusters()
             self.plot_cell_obs()
             self.matrixplot()
+
+        # Handle 'Clustering' mode separately if needed
         elif self.runtime == 'Clustering':
             pass
 
+        # Return the updated AnnData object
         return self.adata
 
     def runvia(self):
@@ -940,7 +968,17 @@ class Cytophenograph:
         fsom = fs.FlowSOM(self.adata, cols_to_use = list(range(len(self.adata.var))),
                           xdim = 10,
                           ydim = 10, n_clusters = self.maxclus, seed = 42)
-
+        self.outfig = self.output_folder
+        self.UMAP_folder = "/".join([self.outfig, "UMAP"])
+        self.createdir(self.UMAP_folder)
+        pl = fs.pl.plot_stars(
+            fsom,
+            background_values = fsom.get_cluster_data().obs["metaclustering"],
+            view = "MST",
+            equal_node_size = False,
+        )
+        pl.savefig(self.UMAP_folder + "/FlowSOMplotstars.pdf")
+        # fs.pl.FlowSOMmary(fsom,plot_file=self.UMAP_folder + "/FlowSOMmary.pdf")
         # Add FlowSOM results to the original AnnData object
         self.adata.obs['pheno_leiden'] = pd.Categorical(fsom.metacluster_labels)
         self.adata.obs['cluster'] = pd.Categorical(fsom.metacluster_labels)
@@ -1006,12 +1044,6 @@ class Cytophenograph:
         #         self.adata.X = self.adata.layers['scaled']
         #self.adata.X = self.adata.layers['raw_value']
         ###
-        #self.log.info(print(self.adata))
-        #self.log.info(print(self.adata.X))
-        #self.log.info(print(self.adata.var))
-        #print(self.adata)
-        #print("####")
-        #print(self.adata.X)
         # self.tmp = self.adata.to_df()
         # self.tmp = self.tmp.astype(int)
         # self.tmp.to_csv(self.output_folder+"/tmp.csv", header=True,
@@ -1030,18 +1062,7 @@ class Cytophenograph:
         # self.adata.obs['pheno_leiden'] = self.adata.obs['pheno_leiden'].astype("category")
         # self.adata.obs['cluster'] =self.flowsomDF['Metaclusters'].values
         # self.adata.X = self.adata.layers['scaled']
-        # if self.runtime == 'Full':
-        #     self.embedding = self.runumap()
-        #     self.adata.obsm['X_umap'] = self.embedding
-        #     self.adata.obsm['X_umap'] = self.embedding
-        # self.generation_concatenate()
-        # self.plot_umap()
-        # self.plot_umap_expression()
-        # self.plot_frequency()
-        # self.plot_cell_clusters()
-        # # self.plot_cell_obs()
-        # self.matrixplot()
-        # return self.adata
+
 
     def generation_concatenate(self):
         """
