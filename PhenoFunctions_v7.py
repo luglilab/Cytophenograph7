@@ -989,40 +989,75 @@ class Cytophenograph:
         else:
             pass
 
+    import pandas as pd
+    import matplotlib.pyplot as plt
+    from scipy.cluster.hierarchy import linkage, dendrogram
+
     def plot_frequency_ptz(self):
         """
-        Function to plot frequency of clusters per time point and per condition
-        Returns: barplot with frequency per time point and per condition
+        Function to plot frequency of clusters per combination of variables (Time_point, Condition, Sample, Cell_type, EXP).
+        Returns: Barplots with frequency per combination of variables.
         """
-        if len(self.adata.obs["ID"].unique()) > 1:
-            self.dfxlinkage = self.adata.obs.groupby("ID")["pheno_leiden"].value_counts(
-                normalize = True).unstack() * 100
-            self.dfxlinkage.fillna(0, inplace = True)
-            Z = linkage(self.dfxlinkage, 'ward',
-                        optimal_ordering = True)
-            dn = dendrogram(Z, get_leaves = True, orientation = 'left', labels = self.dfxlinkage.index,
-                            no_plot = True)
+        # Ensure the required columns are present
+        required_columns = ["Time_point", "Condition", "Sample", "Cell_type", "EXP", "pheno_leiden"]
+        missing_columns = [col for col in required_columns if col not in self.adata.obs.columns]
+        if missing_columns:
+            raise ValueError(f"Missing required columns: {', '.join(missing_columns)}")
+
+        # Initialize a list to store the plots
+        fig_list = []
+
+        # Define combinations of columns to loop over
+        group_combinations = [
+            ["Time_point", "Condition"],
+            ["Sample", "Cell_type"],
+            ["EXP", "Time_point"]
+        ]
+
+        for group_cols in group_combinations:
+            # Compute frequencies for each combination of group_cols and pheno_leiden
+            df = self.adata.obs.groupby(group_cols + ["pheno_leiden"]).size().unstack(fill_value = 0)
+
+            # Normalize to percentage
+            df = df.divide(df.sum(axis = 1), axis = 0) * 100
+
+            # Create a new figure for each plot
             fig, (ax1, ax2) = plt.subplots(1, 2, constrained_layout = True, figsize = (20, 10))
-            dn = dendrogram(Z, get_leaves = True, orientation = 'left', labels = self.dfxlinkage.index,
-                            color_threshold = 0, above_threshold_color = 'k', ax = ax1)
-            self.dfxlinkage.loc[dn['ivl']].plot.barh(legend = False, stacked = True, ax = ax2, color = self.palette)
-            ax1.set(yticklabels = [])
-            ax1.set(xticklabels = [])
-            ax1.grid(False)
-            ax2.tick_params(left = False)
-            ax2.grid(False)
-            ax1.axis('off')
-            ax2.set_ylabel(" ")
-            ax2.set_xlabel("Percentage Frequency")
-            ax2.legend(bbox_to_anchor = (1.2, 1.0), title = 'Cluster')
-            ax2.spines['top'].set_visible(False)
-            ax2.spines['right'].set_visible(False)
-            ax2.spines['left'].set_visible(False)
-            fig.savefig("/".join([self.FREQUENCY_folder , ".".join(["SampleFrequencyClusterized", self.fileformat])]),
-                        dpi = self.dpi, bbox_inches = 'tight',
-                        format = self.fileformat)
-        else:
-            pass
+            fig_list.append(fig)  # Add the figure to the list
+
+            if not df.empty:
+                # Perform hierarchical clustering and plot dendrogram
+                Z = linkage(df, method = 'ward', optimal_ordering = True)
+                dn = dendrogram(Z, get_leaves = True, orientation = 'left', labels = df.index, no_plot = True)
+                dendrogram(Z, get_leaves = True, orientation = 'left', labels = df.index,
+                           color_threshold = 0, above_threshold_color = 'k', ax = ax1)
+                df.loc[dn['ivl']].plot.barh(stacked = True, ax = ax2, color = self.palette, legend = False)
+
+                # Set axis labels and appearance
+                ax1.set(yticklabels = [], xticklabels = [])
+                ax1.grid(False)
+                ax2.tick_params(left = False)
+                ax2.grid(False)
+                ax1.axis('off')
+                ax2.set_ylabel(" ")
+                ax2.set_xlabel("Percentage Frequency")
+                ax2.legend(bbox_to_anchor = (1.2, 1.0), title = 'Cluster')
+                ax2.spines['top'].set_visible(False)
+                ax2.spines['right'].set_visible(False)
+                ax2.spines['left'].set_visible(False)
+            else:
+                ax1.text(0.5, 0.5, f'No data available for {", ".join(group_cols)}', horizontalalignment = 'center',
+                         verticalalignment = 'center', fontsize = 12, transform = ax1.transAxes)
+                ax2.text(0.5, 0.5, f'No data available for {", ".join(group_cols)}', horizontalalignment = 'center',
+                         verticalalignment = 'center', fontsize = 12, transform = ax2.transAxes)
+
+            # Save the figure
+            fig.savefig(f"{self.FREQUENCY_folder}/SampleFrequency_{'_'.join(group_cols)}_Clusterized.{self.fileformat}",
+                        dpi = self.dpi, bbox_inches = 'tight', format = self.fileformat)
+
+        # Optionally, display all figures if running interactively
+        for fig in fig_list:
+            plt.show()
 
     def createdir(self, dirpath):
         """
