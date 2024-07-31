@@ -96,9 +96,8 @@ class Cytophenograph:
         if self.tool == "VIA":
             self.knn = knn
             self.resolution = resolution
-        if self.tool == "FlowSOM":
-            self.maxclus = int(maxclus)
-            self.flowsomDF = pd.DataFrame()
+        self.maxclus = int(maxclus)
+        #self.flowsomDF = pd.DataFrame()
         self.listmarkerplot = None
         self.concatenate_fcs = None
         self.path_flowai = os.path.dirname(os.path.realpath(__file__)) + '/flowai.Rscript'
@@ -715,354 +714,168 @@ class Cytophenograph:
             # self.log.info("Impossible to complete Flow Auto QC. Check Time channel.")
             pass
 
-    def runflowsom(self):
+    def runclustering(self, method='Phenograph'):
         """
-        Executes FlowSOM clustering on the dataset.
-        :return: Updated AnnData object with FlowSOM clustering results.
+        Executes clustering analysis on the dataset using the specified method ('phenograph', 'flowsom', or 'via').
+        :param method: Clustering method to use ('phenograph', 'flowsom', or 'via').
+        :return: Updated AnnData object with clustering results.
         """
-
-        # Log the start of the FlowSOM clustering process
         self.log.warning("PART 2")
-        self.log.info("FlowSOM Clustering")
+        self.log.info(f"{method.capitalize()} Clustering")
 
-        # Log markers included and excluded for FlowSOM clustering
-        self.log.info("Markers used for FlowSOM clustering:")
+        # Log markers used and excluded for clustering
+        self._log_markers(method)
+
+        # Backup the original AnnData object
+        self.adataback = self.adata.copy()
+
+        # Subset AnnData and prepare data
+        self._prepare_data()
+
+        # Perform batch correction if specified
+        if self.scanorama:
+            self._batch_correction()
+
+        # Standardize data
+        self.adata.X = StandardScaler().fit_transform(self.adata.X)
+
+        # Execute clustering based on the specified method
+        if method.lower() == 'phenograph':
+            self._run_phenograph()
+        elif method.lower() == 'flowsom':
+            self._run_flowsom()
+        elif method.lower() == 'via':
+            self._run_via()
+        else:
+            raise ValueError(f"Unsupported clustering method: {method}")
+
+        # Update AnnData with clustering results
+        self._update_results()
+
+        # Run additional analyses and visualizations if runtime is 'Full'
+        if self.runtime == 'Full':
+            self._run_full_analysis()
+
+        return self.adata
+
+    def _log_markers(self, method):
+        """Logs markers used and excluded for clustering."""
+        self.log.info(f"Markers used for {method.capitalize()} clustering:")
         for marker in self.markertoinclude:
-            self.log.info(" + " + marker)
+            self.log.info(f" + {marker}")
 
         if self.marker_array:
-            self.log.info("Markers excluded for FlowSOM clustering:")
+            self.log.info(f"Markers excluded from {method.capitalize()} clustering:")
             for marker in self.marker_array:
-                self.log.info(" - " + marker)
+                self.log.info(f" - {marker}")
 
-        # Subset AnnData to include only the selected markers
-        self.adataback = self.adata  # Backup the original data
-        self.adata = self.adata[:, self.markertoinclude]  # Subset to markers
-
-        # Add an index column to `adata.var` to keep track of variables
+    def _prepare_data(self):
+        """Subsets AnnData, adds an index column, and saves data for batch correction."""
+        self.adata = self.adata[:, self.markertoinclude]
         self.adata.var['n'] = range(len(self.adata.var))
 
-        # Save the data and observation annotations to CSV
         data_df = self.adata[:, self.markertoinclude].to_df()
-        data_df['batch'] = self.adata[:, self.markertoinclude].obs[self.batchcov]
-        data_df.to_csv(self.output_folder + "/tmp.csv", index = False)
+        data_df['batch'] = self.adata.obs[self.batchcov]
+        data_df.to_csv(f"{self.output_folder}/tmp.csv", index = False)
 
-        # Perform batch correction using an external R script if specified
-        if self.scanorama:
-            # Construct the command to execute the R script for batch correction
-            subprocess.check_call(
-                ['Rscript', '--vanilla', self.path_cycombine,
-                 self.output_folder + "/tmp.csv", self.output_folder,
-                 str(self.maxclus), str(self.adata.shape[1])],
-                stdout = self.fnull, stderr = self.fnull
+    def _batch_correction(self):
+        """Performs batch correction using an external R script."""
+        subprocess.check_call(
+            ['Rscript', '--vanilla', self.path_cycombine, f"{self.output_folder}/tmp.csv", self.output_folder,
+             str(self.maxclus), str(self.adata.shape[1])],
+            stdout = self.fnull, stderr = self.fnull
+        )
+        corrected_csv_path = f"{self.output_folder}/corrected_data.csv"
+        corrected_data = pd.read_csv(corrected_csv_path).drop(columns = ["id", "label", "batch"])
+        self.adatacorrected = ad.AnnData(corrected_data)
+        self.adata.X = self.adatacorrected.X
+
+    def _run_phenograph(self):
+        """Executes Phenograph clustering."""
+        if self.runtime == 'Clustering':
+            self.communities, self.graph, self.Q = sce.tl.phenograph(
+                self.adata.X,
+                k = int(self.k_coef),
+                seed = 42,
+                clustering_algo = "leiden",
+                directed = True,
+                primary_metric = "euclidean",
+                q_tol = 0.05,
+                prune = False,
+                min_cluster_size = 1,
+                n_jobs = int(self.thread)
+            )
+        elif self.runtime == 'Full':
+            self.adata.obsm['X_umap'] = umap.UMAP().fit_transform(self.adata.X)
+            self.communities, self.graph, self.Q = sce.tl.phenograph(
+                self.adata.X,
+                k = int(self.k_coef),
+                seed = 42,
+                clustering_algo = "leiden",
+                directed = True,
+                primary_metric = "euclidean",
+                q_tol = 0.05,
+                prune = False,
+                min_cluster_size = 1,
+                n_jobs = int(self.thread)
             )
 
-            # Load the corrected data back into AnnData
-            corrected_csv_path = f"{self.output_folder}/corrected_data.csv"
-            corrected_data = pd.read_csv(corrected_csv_path)
-            corrected_data = corrected_data.drop(columns = ["id", "label", "batch"])
-            self.adatacorrected = ad.AnnData(corrected_data)
-            self.adata.layers['corrected'] = self.adatacorrected.X
-            self.adata.X = self.adata.layers['corrected']
+    def _run_flowsom(self):
+        """Executes FlowSOM clustering."""
+        if self.runtime == 'Clustering':
+            fsom = fs.FlowSOM(
+                self.adata, cols_to_use = list(range(len(self.adata.var))),
+                xdim = 10, ydim = 10, n_clusters = self.maxclus, seed = 42
+            )
+            self.communities = fsom.metacluster_labels
+        elif self.runtime == 'Full':
+            self.adata.obsm['X_umap'] = umap.UMAP().fit_transform(self.adata.X)
+            fsom = fs.FlowSOM(
+                self.adata, cols_to_use = list(range(len(self.adata.var))),
+                xdim = 10, ydim = 10, n_clusters = self.maxclus, seed = 42
+            )
+            self.communities = fsom.metacluster_labels
+            self.adata.obs['MetaCluster_Flowsom'] = pd.Categorical(fsom.cluster_labels)
 
-        # Perform PCA to reduce dimensionality
-        sc.tl.pca(self.adata, svd_solver = 'arpack', n_comps = len(self.adata.var.index) - 1)
+    def _run_via(self):
+        """Executes VIA clustering."""
+        if self.runtime == 'Clustering':
+            p = via.VIA(
+                self.adata.X, random_seed = 42, knn = int(self.knn), root_user = self.root_user,
+                jac_weighted_edges = False, distance = 'l2',
+                small_pop = 10, resolution_parameter = self.resolution, num_threads = int(self.thread)
+            )
+            p.run_VIA()
+            self.communities = p.labels
+        elif self.runtime == 'Full':
+            self.adata.obsm['X_umap'] = umap.UMAP().fit_transform(self.adata.X)
+            p = via.VIA(
+                self.adata.X, random_seed = 42, knn = int(self.knn), root_user = self.root_user,
+                jac_weighted_edges = False, distance = 'l2',
+                small_pop = 10, resolution_parameter = self.resolution, num_threads = int(self.thread)
+            )
+            p.run_VIA()
+            self.communities = p.labels
 
-        # Determine the number of principal components (PCs) to use based on variance explained
-        min_cml_frac = 0.5
-        cml_var_explained = np.cumsum(self.adata.uns['pca']['variance_ratio'])
-        self.n_pcs = next(idx for idx, cml_frac in enumerate(cml_var_explained) if cml_frac > min_cml_frac)
+    def _update_results(self):
+        """Updates the AnnData object with clustering results."""
+        self.adata.obs['pheno_leiden'] = pd.Categorical(self.communities)
+        self.adata.obs['cluster'] = pd.Categorical(self.communities)
 
-        # Standardize the data
-        scaler = StandardScaler()
-        self.adata.X = scaler.fit_transform(self.adata.X)
+        self.adataback.obs['pheno_leiden'] = pd.Categorical(self.communities)
+        self.adataback.obs['cluster'] = pd.Categorical(self.communities)
+        if 'X_umap' in self.adata.obsm:
+            self.adataback.obsm['X_umap'] = self.adata.obsm['X_umap']
 
-        # Perform UMAP dimensionality reduction
-        self.adata.obsm['X_umap'] = umap.UMAP().fit_transform(self.adata.X)
-
-        # Create and run FlowSOM clustering
-        fsom = fs.FlowSOM(
-            self.adata, cols_to_use = list(range(len(self.adata.var))),
-            xdim = 10, ydim = 10, n_clusters = self.maxclus, seed = 42
-        )
-
-        # Save UMAP plots and FlowSOM cluster stars
-        self.UMAP_folder = os.path.join(self.output_folder, "UMAP")
-        self.createdir(self.UMAP_folder)
-        pl = fs.pl.plot_stars(
-            fsom, background_values = fsom.get_cluster_data().obs["metaclustering"],
-            view = "MST", equal_node_size = False
-        )
-        pl.savefig(os.path.join(self.UMAP_folder, "FlowSOMplotstars.pdf"))
-
-        # Add FlowSOM results to the original AnnData object
-        self.adata.obs['pheno_leiden'] = pd.Categorical(fsom.metacluster_labels)
-        self.adata.obs['cluster'] = pd.Categorical(fsom.metacluster_labels)
-        self.adata.obs['MetaCluster_Flowsom'] = pd.Categorical(fsom.cluster_labels)
-
-        # Also update the backup AnnData object with clustering results
-        self.adataback.obs['pheno_leiden'] = pd.Categorical(fsom.metacluster_labels)
-        self.adataback.obs['cluster'] = pd.Categorical(fsom.metacluster_labels)
-        self.adataback.obs['MetaCluster_Flowsom'] = pd.Categorical(fsom.cluster_labels)
-        self.adataback.obsm['X_umap'] = self.adata.obsm['X_umap']
-
-        # Remove unnecessary columns from observations
-        columns_to_remove = ['clustering', 'distance_to_bmu', 'metaclustering']
-        for col in columns_to_remove:
-            if col in self.adata.obs:
-                del self.adata.obs[col]
-
-        # Execute additional analyses if the runtime mode is 'Full'
-        if self.runtime == 'Full':
-            self.runumap()
-            self.generation_concatenate()
-            self.plot_umap()
-            self.plot_umap_expression()
-            self.plot_frequency()
-            self.plot_cell_clusters()
-            self.plot_cell_obs()
-            self.matrixplot()
-
-        # Handle 'Clustering' mode separately if needed
-        elif self.runtime == 'Clustering':
-            pass
-
-        # Return the updated AnnData object
-        return self.adata
-
-    def runvia(self):
-        """
-        function for execution of
-        :return:
-        """
-        self.log.warning("PART 2")
-        self.log.info("VIA Clustering")
-        self.createfcs()
-        self.log.info("Markers used for VIA clustering:")
-        for i in self.markertoinclude:
-            self.log.info(" + " + i)
-        if len(self.marker_array):
-            self.log.info("Markers excluded for VIA clustering:")
-        for i in self.marker_array:
-            self.log.info(" - " + i)
-        # if (self.filetype == "FCS") and (self.arcsinh == True):
-        #     self.adata = scprep.transform.arcsinh(self.adata.X, cofactor=150)
-        # else:
-        #     pass
-        # slide markers
-        self.adata = self.adata[:, self.markertoinclude]
-        # compute PCA
-        sc.tl.pca(self.adata, svd_solver = 'arpack', n_comps = len(self.adata.var.index) - 1)
-        # set min cumulative fraction
-        min_cml_frac = 0.3
-        # compute how many PCs corresponds to min cumulative fraction selected
-        cml_var_explained = np.cumsum(self.adata.uns['pca']['variance_ratio'])
-        self.n_pcs = next(idx for idx, cml_frac in enumerate(cml_var_explained) if cml_frac > min_cml_frac)
-        # scale data
-        sc.pp.scale(self.adata, max_value = 10)
-        # remove batch effect
-        if self.scanorama is True:
-            sce.pp.harmony_integrate(self.adata, self.batchcov)
-            self.adata.obsm['X_pca'] = self.adata.obsm['X_pca_harmony']
-        # compute neighbors
-        sc.pp.neighbors(self.adata, n_neighbors = self.n_neighbors, metric = "cosine")  # n_pcs = 1,
-        # compute umap
-        sc.tl.umap(self.adata,min_dist = self.mindist, spread=self.spread)
-        # compute via
-        p = via.VIA(self.adata.obsm['X_pca'], random_seed=42, knn=int(self.knn), root_user=self.root_user,
-                    jac_weighted_edges=False, distance='l2',
-                    small_pop=10, resolution_parameter=self.resolution,num_threads=int(self.thread))
-        p.run_VIA()
-        # add cluster number to obs
-        self.adata.obs['pheno_leiden'] = [str(i) for i in p.labels]
-        # starting cluster from 1
-        self.adata.obs['pheno_leiden'] = self.adata.obs['pheno_leiden'].astype(int) + 1
-        # transform to category
-        self.adata.obs['pheno_leiden'] = self.adata.obs['pheno_leiden'].astype('category')
-        # create anchors
-        self.adata.obs['cluster'] = self.adata.obs['pheno_leiden'].values
-        self.adata.obs['VIA_cluster'] = self.adata.obs['pheno_leiden'].values
-        # check if execute full pipeline
-        if self.runtime == 'Full':
-            self.generation_concatenate()
-            self.plot_umap()
-            self.plot_umap_expression()
-            self.plot_frequency()
-            self.plot_cell_clusters()
-            # self.plot_cell_obs()
-            self.matrixplot()
-        elif self.runtime == 'Clustering':
-            pass
-        return self.adata
-
-    def runflowsom(self):
-        """
-        Executes FlowSOM clustering on the dataset.
-        :return: Updated AnnData object with FlowSOM clustering results.
-        """
-        self.log.warning("PART 2")
-        self.log.info("FlowSOM Clustering")
-
-        # Logging markers used and excluded for FlowSOM clustering
-        self.log.info("Markers used for FlowSOM clustering:")
-        for marker in self.markertoinclude:
-            self.log.info(" + " + marker)
-
-        if self.marker_array:
-            self.log.info("Markers excluded for FlowSOM clustering:")
-            for marker in self.marker_array:
-                self.log.info(" - " + marker)
-
-        # Subset AnnData to include only the selected markers
-        self.adataback = self.adata
-        self.adata = self.adata[:, self.markertoinclude]
-
-        # Add a new column to `adata.var` from 0 to the length of `adata.var`
-        self.adata.var['n'] = range(len(self.adata.var))
-
-        # Save the data and observations to CSV
-        data_df = self.adata[:, self.markertoinclude].to_df()
-        data_df['batch'] = self.adata[:, self.markertoinclude].obs[self.batchcov]
-        #obs_df = self.adata[:, self.markertoinclude].obs[self.batchcov]
-        #merged_df = pd.merge(data_df, obs_df, left_index = True, right_index = True)
-
-        # Save to CSV
-        data_df.to_csv(self.output_folder+"/tmp.csv", index = False)
-
-        # Perform batch correction if needed
-        if self.scanorama:
-            # Construct the command to execute the R script
-            subprocess.check_call(['Rscript', '--vanilla',
-                                    self.path_cycombine, self.output_folder+"/tmp.csv",
-                                    self.output_folder,str(self.maxclus),str(self.adata.shape[1])],
-                                  stdout=self.fnull, stderr=self.fnull)
-            # Load the corrected data back into AnnData
-            corrected_csv_path = f"{self.output_folder}/corrected_data.csv"
-            corrected_data = pd.read_csv(corrected_csv_path)
-            corrected_data = corrected_data.drop(columns = ["id", "label", "batch"])
-            self.adatacorrected = ad.AnnData(corrected_data)
-            self.adata.layers['corrected'] = self.adatacorrected.X
-            self.adata.X = self.adata.layers['corrected']
-
-        # Perform PCA
-        sc.tl.pca(self.adata, svd_solver = 'arpack', n_comps = len(self.adata.var.index) - 1)
-
-        # Determine the number of PCs to use based on cumulative variance explained
-        min_cml_frac = 0.5
-        cml_var_explained = np.cumsum(self.adata.uns['pca']['variance_ratio'])
-        self.n_pcs = next(idx for idx, cml_frac in enumerate(cml_var_explained) if cml_frac > min_cml_frac)
-
-        # Scale the data
-        scaler = StandardScaler()
-        self.adata.X = scaler.fit_transform(self.adata.X)
-        # sc.pp.scale(self.adata, max_value = 10)
-
-        self.adata.obsm['X_umap'] = umap.UMAP().fit_transform(self.adata.X)
-
-        # Create a new AnnData object for FlowSOM with PCA results
-        # self.adataflowsom = ad.AnnData(self.adata.obsm['X_pca'])
-        # self.adataflowsom.obs = self.adata.obs.copy()
-        # self.adataflowsom.var['n'] = range(len(self.adataflowsom.var))
-        self.adata.var['n'] = range(len(self.adata.var))
-        # Run FlowSOM
-        fsom = fs.FlowSOM(self.adata, cols_to_use = list(range(len(self.adata.var))),
-                          xdim = 10,
-                          ydim = 10, n_clusters = self.maxclus, seed = 42)
-        self.outfig = self.output_folder
-        self.UMAP_folder = "/".join([self.outfig, "UMAP"])
-        self.createdir(self.UMAP_folder)
-        pl = fs.pl.plot_stars(
-            fsom,
-            background_values = fsom.get_cluster_data().obs["metaclustering"],
-            view = "MST",
-            equal_node_size = False,
-        )
-        pl.savefig(self.UMAP_folder + "/FlowSOMplotstars.pdf")
-        # fs.pl.FlowSOMmary(fsom,plot_file=self.UMAP_folder + "/FlowSOMmary.pdf")
-        # Add FlowSOM results to the original AnnData object
-        self.adata.obs['pheno_leiden'] = pd.Categorical(fsom.metacluster_labels)
-        self.adata.obs['cluster'] = pd.Categorical(fsom.metacluster_labels)
-        self.adata.obs['MetaCluster_Flowsom'] = pd.Categorical(fsom.cluster_labels)
-        self.adataback.obs['pheno_leiden'] = pd.Categorical(fsom.metacluster_labels)
-        self.adataback.obs['cluster'] = pd.Categorical(fsom.metacluster_labels)
-        self.adataback.obs['MetaCluster_Flowsom'] = pd.Categorical(fsom.cluster_labels)
-        self.adataback.obsm['X_umap'] = self.adata.obsm['X_umap']
-        # Remove unnecessary columns from observations
-        columns_to_remove = ['clustering', 'distance_to_bmu', 'metaclustering']
-        for col in columns_to_remove:
-            if col in self.adata.obs:
-                del self.adata.obs[col]
-
-        # Run additional steps if the runtime mode is 'Full'
-        if self.runtime == 'Full':
-            self.runumap()
-            self.generation_concatenate()
-            self.plot_umap()
-            self.plot_umap_expression()
-            self.plot_frequency()
-            self.plot_cell_clusters()
-            self.plot_cell_obs()
-            self.matrixplot()
-        elif self.runtime == 'Clustering':
-            pass
-        return self.adata
-
-
-
-        #### old method
-        # self.adata.write("/home/lugli/spuccio/Projects/SP026_dev_cytophenograph/Cytophenograph7/output_test/testflowsom.h5ad")
-        # fsom = fs.FlowSOM(
-        #     self.adata, cols_to_use = list(range(len(self.adata.var))), xdim = 10, ydim = 10,
-        #     n_clusters =self.maxclus, seed = 42)
-        # self.adata.obs['pheno_leiden'] = pd.Categorical(fsom.metacluster_labels)
-        # self.adata.obs['cluster'] = pd.Categorical(fsom.metacluster_labels)
-        # self.adata.obs['MetaCluster_Flowsom'] = pd.Categorical(fsom.cluster_labels)
-        # del self.adata.obs['clustering']
-        # del self.adata.obs['distance_to_bmu']
-        # del self.adata.obs['metaclustering']
-
-        #
-        # if (self.filetype == "FCS") and (self.arcsinh == True):
-        #     self.adata = scprep.transform.arcsinh(self.adata.X, cofactor=150)
-        # else:
-        #     pass
-        # if self.runtime != 'Clustering':
-        #     if self.scanorama is True:
-        #         self.adata = self.correct_scanorama()
-        #     else:
-        #         self.adata = self.adata[:, self.markertoinclude].copy()
-        #         self.adata.layers['scaled'] = sc.pp.scale(self.adata, max_value = 6,
-        #                                                          zero_center = True, copy = True).X
-        #         self.adata.X = self.adata.layers['scaled']
-        # else:
-        #     if self.scanorama is True:
-        #         self.adata = self.correct_scanorama()
-        #     else:
-        #         self.adata = self.adata[:, self.markertoinclude].copy()
-        #         self.adata.layers['scaled'] = sc.pp.scale(self.adata, max_value = 6,
-        #                                                          zero_center = True, copy = True).X
-        #         self.adata.X = self.adata.layers['scaled']
-        #self.adata.X = self.adata.layers['raw_value']
-        ###
-        # self.tmp = self.adata.to_df()
-        # self.tmp = self.tmp.astype(int)
-        # self.tmp.to_csv(self.output_folder+"/tmp.csv", header=True,
-        #                 index=True, sep=',', mode='w')
-        # self.UMAP_folder = "/".join([self.outfig, "UMAP"])
-        # self.createdir(self.UMAP_folder)
-        # subprocess.check_call(['Rscript', '--vanilla',
-        #                        self.path_flowsom, self.output_folder+"/tmp.csv",
-        #                        self.output_folder,self.UMAP_folder,self.maxclus], stdout=self.fnull, stderr=self.fnull)
-        # self.flowsomDF = pd.read_csv(self.output_folder+"/output_flowsom.csv", sep=',', header=0, index_col=0)
-        # self.adata.obs['Clusters'] = self.flowsomDF['Clusters'].values
-        # self.adata.obs['Metaclusters'] = self.flowsomDF['Metaclusters'].values
-        # self.adata.obs['Cluster_Flowsom'] = self.adata.obs['Clusters'].values
-        # self.adata.obs['MetaCluster_Flowsom'] = self.adata.obs['Metaclusters'].values
-        # self.adata.obs['pheno_leiden'] = self.flowsomDF['Metaclusters'].values
-        # self.adata.obs['pheno_leiden'] = self.adata.obs['pheno_leiden'].astype("category")
-        # self.adata.obs['cluster'] =self.flowsomDF['Metaclusters'].values
-        # self.adata.X = self.adata.layers['scaled']
-
+    def _run_full_analysis(self):
+        """Runs additional analyses and visualizations if runtime is 'Full'."""
+        self.generation_concatenate()
+        self.plot_umap()
+        self.plot_umap_expression()
+        self.plot_frequency()
+        self.plot_cell_clusters()
+        self.plot_cell_obs()
+        self.matrixplot()
 
     def generation_concatenate(self):
         """
@@ -1393,11 +1206,12 @@ class Cytophenograph:
                 self.adata.obs[self.tool + "_" + str(self.k_coef)] = self.adata.obs['cluster'].astype("str")
                 del self.adata.obs['cluster']
                 del self.adata.obs[self.tool + "_" + str(self.k_coef)]
-                self.adata.obs["".join([str(self.tool), "_cluster"])] = self.adata.obs[
-                    "".join([str(self.tool), "_cluster"])].astype('category')
+                self.adata.obs.rename(columns = {"pheno_leiden": "Phenograph_cluster"}, inplace = True)
+                #self.adata.obs["".join([str(self.tool), "_cluster"])] = self.adata.obs["pheno_leiden"].astype('category')
                 self.adata.layers['scaled01'] = self.scaler.fit_transform(self.adata.layers['raw_value'])
                 self.adata.X = self.adata.layers['scaled01']
                 self.adata.layers['scaled01'] = scipy.sparse.csr_matrix(self.adata.layers['scaled01'])
+                #TODO order columns as initial obj
                 self.adata.write("/".join([self.output_folder, ".".join([self.analysis_name, "h5ad"])]))
             elif self.tool == "VIA":
                 self.adata.obs[self.tool + "_" + str(self.knn)] = self.adata.obs['cluster'].astype("str")

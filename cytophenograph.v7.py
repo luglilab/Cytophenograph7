@@ -68,11 +68,11 @@ def main():
 
         if options.runtime != 'UMAP':
             if options.clustering == "Phenograph":
-                DictInfo["phenograph_adata"] = run.runphenograph()
+                DictInfo["phenograph_adata"] = run.runclustering(method="Phenograph")
             elif options.clustering == "VIA":
-                DictInfo["via_adata"] = run.runvia()
+                DictInfo["via_adata"] = run.runclustering(method="VIA")
             elif options.clustering == "FlowSOM":
-                DictInfo["flowsom_adata"] = run.runflowsom()
+                DictInfo["flowsom_adata"] = run.runclustering(method="FlowSOM")
             run.groupbycluster()
             run.groupbysample()
             run.exporting()
