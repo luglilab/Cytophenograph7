@@ -1,7 +1,0 @@
-FlowCytometryTools
-matplotlib
-networkx
-minisom
-scikit-learn
-numpy
-pandas
