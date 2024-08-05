@@ -8,7 +8,7 @@ def parse_arguments():
         usage='python ./Cytophenograph/cytophenograph.v7.py -i $abs_path/Cytophenograph/Test_dataset/CD8_Panel_II_channelvalues_GA_downSampled/ -o $abs_path/Cytophenograph/output_test -k 300 -m $abs_path/Cytophenograph/Test_dataset/CD8_bulk_markers_to_exclude.txt -n Test -t 10 -p $abs_path/Cytophenograph/Test_dataset/Info_file_bulk_Test.xlsx -c VIA',
         version='7.0'
     )
-    parser.add_option('-a', action="store_true", dest="arcsin", default=False, help='Perform arcsinh transformation on data.')
+    parser.add_option('-a', action="store_true", dest="transformation", default=False, help='Apply transformation to the data. Default: False')
     parser.add_option('-b', action="store_true", dest="batch", default=False, help='Perform batch correction with Scanorama.')
     parser.add_option('-c', type='choice', choices=['Phenograph', 'VIA', 'FlowSOM'], dest="clustering", default="Phenograph", help='Tool selecting for clustering. Options: [Phenograph, VIA, FlowSOM].')
     parser.add_option('-d', action="store", dest="mindist", default=0.5, type=float, help='min_dist parameter for UMAP generation.')
@@ -28,6 +28,7 @@ def parse_arguments():
     parser.add_option('-w', action="store", dest="knn", default=30, type=int, help='Number of K-Nearest Neighbors for VIA. Range: 5-100. Default: 30')
     parser.add_option('-y', action="store", dest="maxclus", default=31, type=int, help='Exact number of clusters for meta-clustering. Max: 31.')
     parser.add_option('-z', action="store", dest="resolution", default=1.0, type=float, help='Resolution for VIA clustering. Range: 0.2-1.5. Default: 1.0')
+    parser.add_option('-x', action="store_true", dest="compensation", default=False, help='Apply compensation to the data. Default: False')
 
     return parser.parse_args()
 
@@ -55,7 +56,9 @@ def main():
         downsampling=options.downsampling,
         cellnumber=options.cellnumber,
         filetype=options.fileformat,
-        arcsinh=options.arcsin
+        arcsinh=options.arcsin,
+        compensation=options.compensation,  # Pass new option
+        transformation=options.transformation  # Pass new option
     )
 
     try:

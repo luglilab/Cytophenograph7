@@ -14,7 +14,7 @@ csv <- args[1]
 outputfolder <- args[2]
 NClus <- as.integer(args[3])  # Ensure NClus is read as an integer
 num_markers <- as.integer(args[4])  # Number of marker columns to use
-
+NClus <- 10
 # Read the data from the CSV file
 tibble_data <- read_csv(csv)
 

@@ -288,6 +288,8 @@ class Cytophenograph:
             else:
                 pass
         self.cleaning.update({"Before QC":self.adata.shape[0]})
+        non_zero_cells_mask = (self.adata.X > 0).all(axis = 1)
+        self.adata = self.adata[non_zero_cells_mask]
         self.log.info("{0} cells undergo to clustering analysis".format(self.adata.shape[0]))
         self.adata.layers['raw_value'] = self.adata.X
         self.adata.raw = self.adata
@@ -520,6 +522,103 @@ class Cytophenograph:
         elif self.runtime == 'Clustering':
             pass
 
+    def plot_expression_and_save_pdf(self, exp_column, clip_limit=(-5, 5),
+                                     line_width=1.5):
+        """
+        Plot expression data and save as a PDF.
+
+        Parameters:
+        - adata: AnnData object containing the data.
+        - exp_column: The column in adata.obs used for hue in the plot (e.g., 'EXP').
+        - markers: List of gene markers to include in the plot.
+        - output_pdf: Filename for the output PDF.
+        - clip_limit: Tuple specifying the min and max clipping values for the density plot.
+        - line_width: Width of the outline for the density plots.
+        """
+        # Downsampling function to reduce the dataset to 10,000 observations
+        def downsample_data(adata, target_size=10000):
+            # Calculate the number of samples to draw from each group based on proportions
+            group_counts = self.adata_downsampled.obs[exp_column].value_counts(normalize = True) * target_size
+            group_counts = group_counts.round().astype(int)
+
+            # Sample indices for each group
+            sampled_indices = []
+            for group, count in group_counts.items():
+                group_indices = adata.obs[adata.obs[exp_column] == group].index
+                sampled_indices.extend(np.random.choice(group_indices, count, replace = False))
+
+            # Return a downsampled AnnData object
+            return adata[sampled_indices]
+
+        # Downsample the data
+        self.adata_10000 = downsample_data(self.adata_downsampled)
+
+        # Transpose the data so that markers are columns and observations are rows
+        df = pd.DataFrame(self.adata_10000.X, columns = self.adata_10000.var.index,
+                          index = self.adata_10000.obs[exp_column])
+
+        # Melt the DataFrame to long format
+        df_long = df.reset_index().melt(id_vars = exp_column, var_name = 'Marker', value_name = 'Expression')
+
+        # Initialize the FacetGrid object with Marker as the rows and EXP as the hue
+        # Choose a diverging color palette
+        pal = sns.color_palette("Spectral", df_long[exp_column].nunique())  # "Spectral" is a good diverging palette
+        g = sns.FacetGrid(df_long, row = 'Marker', hue = exp_column, aspect = 15, height = 1.2, palette = pal,
+                          sharex = False)
+
+        # Draw the densities with outline
+        def plot_density(data, color, **kwargs):
+            sns.kdeplot(data = data, x = 'Expression', bw_adjust = 0.5, clip = clip_limit,
+                        fill = True, alpha = 0.5, linewidth = line_width, common_norm = False, color = color, **kwargs)
+
+        g.map_dataframe(plot_density)
+
+        # Properly label each subplot with the corresponding Marker name
+        def label_marker(ax, marker):
+            ax.text(-0.1, 0, marker, fontweight = "bold", color = "black",
+                    ha = "right", va = "center", transform = ax.transAxes, fontsize = 10)
+
+        # Loop over each subplot to add the marker labels
+        for ax, marker in zip(g.axes.flat, df_long['Marker'].unique()):
+            label_marker(ax, marker)  # Call the label function with the current axis and marker
+
+        # Set the subplots to overlap
+        g.figure.subplots_adjust(hspace = -0.5)
+
+        # Add a legend to the plot
+        g.add_legend(title = f"{exp_column}", bbox_to_anchor = (1.05, 1), loc = 'upper left', borderaxespad = 0.)
+
+        # Remove axes details that don't play well with overlap
+        g.set_titles("")
+        g.set(yticks = [], ylabel = "", xlabel = "")
+
+        # Hide x-axis ticks and labels for all but the last subplot
+        for ax in g.axes.flat[:-1]:
+            ax.set_xticks([])  # Remove x-ticks
+            ax.set_xticklabels([])  # Remove x-tick labels
+
+        # Remove the x-label from the last subplot
+        g.axes.flat[-1].set_xlabel("")  # No x-label
+
+        # Ensure x-ticks are visible for the last plot
+        g.axes.flat[-1].tick_params(axis = 'x', which = 'both', length = 5)
+
+        # Remove spines for a cleaner look
+        g.despine(bottom = True, left = True)
+
+        # Adjust the size of the plot to fit within A4 dimensions
+        g.fig.set_size_inches(8.27, 11.69)  # A4 size in inches
+
+        self.outfig = self.output_folder
+        self.JOYPLOT = "/".join([self.outfig, "JOYPLOT"])
+        ".".join(["".join([str(self.tool), "_cluster"]), "pdf"])
+        # Save the plot to a PDF with high resolution
+        plt.savefig("/".join([self.JOYPLOT, ".".join([exp_column, self.fileformat])]),
+                    dpi = 300, bbox_inches = 'tight')
+
+        # Show the plot
+        plt.show()
+
     def plot_cell_clusters(self):
         if self.runtime == 'Full':
             self.umap = pd.DataFrame(self.adata_downsampled.obsm['X_umap'], index = self.adata_downsampled.obs_names)
@@ -732,6 +831,7 @@ class Cytophenograph:
         # Subset AnnData and prepare data
         self._prepare_data()
 
+        #self.plot_expression_and_save_pdf("EXP")
         # Perform batch correction if specified
         if self.scanorama:
             self._batch_correction()
@@ -771,6 +871,7 @@ class Cytophenograph:
 
     def _prepare_data(self):
         """Subsets AnnData, adds an index column, and saves data for batch correction."""
+        self.adata.raw = self.adata
         self.adata = self.adata[:, self.markertoinclude]
         self.adata.var['n'] = range(len(self.adata.var))
 
@@ -989,10 +1090,6 @@ class Cytophenograph:
         else:
             pass
 
-    import pandas as pd
-    import matplotlib.pyplot as plt
-    from scipy.cluster.hierarchy import linkage, dendrogram
-
     def plot_frequency_ptz(self):
         """
         Function to plot frequency of clusters per combination of variables (Time_point, Condition, Sample, Cell_type, EXP).
@@ -1015,17 +1112,27 @@ class Cytophenograph:
         ]
 
         for group_cols in group_combinations:
+            # Check if there is more than one unique combination in group_cols
+            unique_combinations = self.adata.obs[group_cols].drop_duplicates()
+            if len(unique_combinations) <= 1:
+                print(f"Skipping plot for {', '.join(group_cols)} as there is only one unique combination.")
+                continue
+
             # Compute frequencies for each combination of group_cols and pheno_leiden
             df = self.adata.obs.groupby(group_cols + ["pheno_leiden"]).size().unstack(fill_value = 0)
 
             # Normalize to percentage
             df = df.divide(df.sum(axis = 1), axis = 0) * 100
 
+            # Replace NaN or infinite values with zero
+            df.replace([np.inf, -np.inf], np.nan, inplace = True)
+            df.fillna(0, inplace = True)
+
             # Create a new figure for each plot
             fig, (ax1, ax2) = plt.subplots(1, 2, constrained_layout = True, figsize = (20, 10))
             fig_list.append(fig)  # Add the figure to the list
 
-            if not df.empty:
+            if not df.empty and np.isfinite(df.values).all():
                 # Perform hierarchical clustering and plot dendrogram
                 Z = linkage(df, method = 'ward', optimal_ordering = True)
                 dn = dendrogram(Z, get_leaves = True, orientation = 'left', labels = df.index, no_plot = True)
