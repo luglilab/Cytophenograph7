@@ -13,7 +13,7 @@ import tempfile
 import matplotlib
 import scipy
 import matplotlib.pyplot as plt
-from sklearn.preprocessing import MinMaxScaler,StandardScaler
+from sklearn.preprocessing import MinMaxScaler, StandardScaler
 import fcsy
 from fcsy import DataFrame
 import subprocess
@@ -51,6 +51,54 @@ class CustomFormatter(logging.Formatter):
         log_fmt = self.FORMATS.get(record.levelno, self.FORMATS['DEFAULT'])
         formatter = logging.Formatter(log_fmt)
         return formatter.format(record)
+
+class PrintLogo:
+    def __init__(self):
+        """
+        Initializes the PrintLogo class and logs the ASCII art logo.
+        """
+        self.log = logging.getLogger(__name__)
+        self.log.setLevel(logging.INFO)
+
+        # Ensure that the logging handler is set up only once
+        if not self.log.handlers:
+            handler = logging.StreamHandler()
+            handler.setFormatter(logging.Formatter('%(message)s'))
+            self.log.addHandler(handler)
+
+        self.log.info(self.get_logo())
+
+    @staticmethod
+    def get_logo():
+        """
+        Returns the ASCII art logo as a string.
+        """
+        return """
+                #     _____      _              _                                            _      __      ________ 
+                #    / ____|    | |            | |                                          | |     \ \    / /____  |
+                #   | |    _   _| |_ ___  _ __ | |__   ___ _ __   ___   __ _ _ __ __ _ _ __ | |__    \ \  / /    / / 
+                #   | |   | | | | __/ _ \| '_ \| '_ \ / _ \ '_ \ / _ \ / _` | '__/ _` | '_ \| '_ \    \ \/ /    / /  
+                #   | |___| |_| | || (_) | |_) | | | |  __/ | | | (_) | (_| | | | (_| | |_) | | | |    \  /    / /   
+                #    \_____\__, |\__\___/| .__/|_| |_|\___|_| |_|\___/ \__, |_|  \__,_| .__/|_| |_|     \(_)  /_/    
+                #           __/ |        | |                            __/ |         | |                            
+                #          |___/         |_|                           |___/          |_|                            
+                """
+
+class DataImporter:
+    def __init__(self):
+        """
+
+        """
+        self.log = logging.getLogger(__name__)
+        self.log.setLevel(logging.INFO)
+
+        # Ensure that the logging handler is set up only once
+        if not self.log.handlers:
+            handler = logging.StreamHandler()
+            handler.setFormatter(logging.Formatter('%(message)s'))
+            self.log.addHandler(handler)
+
+        self.log.info(self.get_logo())
 
 
 class Cytophenograph:
@@ -121,16 +169,8 @@ class Cytophenograph:
         self.palette28 = palette28
         self.palette102 = palette102
 
-        if self.runtime == 'UMAP': self.tool = 'UMAP'
-        self.log.info("""
-        #     _____      _              _                                            _      __      ________ 
-        #    / ____|    | |            | |                                          | |     \ \    / /____  |
-        #   | |    _   _| |_ ___  _ __ | |__   ___ _ __   ___   __ _ _ __ __ _ _ __ | |__    \ \  / /    / / 
-        #   | |   | | | | __/ _ \| '_ \| '_ \ / _ \ '_ \ / _ \ / _` | '__/ _` | '_ \| '_ \    \ \/ /    / /  
-        #   | |___| |_| | || (_) | |_) | | | |  __/ | | | (_) | (_| | | | (_| | |_) | | | |    \  /    / /   
-        #    \_____\__, |\__\___/| .__/|_| |_|\___|_| |_|\___/ \__, |_|  \__,_| .__/|_| |_|     \(_)  /_/    
-        #           __/ |        | |                            __/ |         | |                            
-        #          |___/         |_|                           |___/          |_|                            """)
+        if self.runtime == 'UMAP':
+            self.tool = 'UMAP'
         self.log.info("Runtime: {}".format(self.runtime))
         self.log.info("DownSampling: {}".format(self.downsampling))
         if self.downsampling != 'All':

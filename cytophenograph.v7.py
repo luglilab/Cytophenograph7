@@ -1,14 +1,25 @@
 import sys
-import traceback
 import optparse
-from PhenoFunctions_v7 import Cytophenograph
+import os
+from DataImportClass import DataImporter
+from ClusteringClass import Clustering
+from VisualizationClass import Visualization
+from PrintLogoClass import PrintLogo
+from GroupingClass import Grouping
+from ExportingClass import Exporting
+from LogClass import LoggerSetup
 
 def parse_arguments():
+    """
+    Parse command line arguments.
+
+    :return: Parsed arguments.
+    """
     parser = optparse.OptionParser(
         usage='python ./Cytophenograph/cytophenograph.v7.py -i $abs_path/Cytophenograph/Test_dataset/CD8_Panel_II_channelvalues_GA_downSampled/ -o $abs_path/Cytophenograph/output_test -k 300 -m $abs_path/Cytophenograph/Test_dataset/CD8_bulk_markers_to_exclude.txt -n Test -t 10 -p $abs_path/Cytophenograph/Test_dataset/Info_file_bulk_Test.xlsx -c VIA',
         version='7.0'
     )
-    parser.add_option('-a', action="store_true", dest="transformation", default=False, help='Apply transformation to the data. Default: False')
+    parser.add_option('-a', action="store_true", dest="arcsin", default=False, help='Perform arcsinh transformation on data.')
     parser.add_option('-b', action="store_true", dest="batch", default=False, help='Perform batch correction with Scanorama.')
     parser.add_option('-c', type='choice', choices=['Phenograph', 'VIA', 'FlowSOM'], dest="clustering", default="Phenograph", help='Tool selecting for clustering. Options: [Phenograph, VIA, FlowSOM].')
     parser.add_option('-d', action="store", dest="mindist", default=0.5, type=float, help='min_dist parameter for UMAP generation.')
@@ -29,68 +40,121 @@ def parse_arguments():
     parser.add_option('-y', action="store", dest="maxclus", default=31, type=int, help='Exact number of clusters for meta-clustering. Max: 31.')
     parser.add_option('-z', action="store", dest="resolution", default=1.0, type=float, help='Resolution for VIA clustering. Range: 0.2-1.5. Default: 1.0')
     parser.add_option('-x', action="store_true", dest="compensation", default=False, help='Apply compensation to the data. Default: False')
-
+    parser.add_option('-j', action="store_true", dest="transformation", default=False, help='Apply transformation to the data. Default: False')
     return parser.parse_args()
 
 def main():
+    logger = LoggerSetup.setup_logging()
+
+    # # Example log messages
+    # logger.info("This is an info message.")
+    # logger.warning("This is a warning message.")
+    # logger.error("This is an error message.")
+    # #logger = CustomFormatter.format()  # Set up logging
+    PrintLogo()  # Display the ASCII art logo
+
     options, args = parse_arguments()
     DictInfo = dict()
 
-    run = Cytophenograph(
-        info_file=options.pheno,
+    # Initialize the DataImporter with the parsed arguments
+    data_importer = DataImporter(
         input_folder=options.input_folder,
-        output_folder=options.output_folder,
-        k_coef=options.kmeancoef,
+        info_file=options.pheno,
         marker_list=options.markerlist,
-        analysis_name=options.analysis_name,
-        thread=options.thread,
-        tool=options.clustering,
-        batch=options.batch,
-        batchcov=options.batchcov,
-        mindist=options.mindist,
-        spread=options.spread,
-        runtime=options.runtime,
-        knn=options.knn,
-        resolution=options.resolution,
-        maxclus=options.maxclus,
-        downsampling=options.downsampling,
-        cellnumber=options.cellnumber,
         filetype=options.fileformat,
-        arcsinh=options.arcsin,
-        compensation=options.compensation,  # Pass new option
-        transformation=options.transformation  # Pass new option
+        cellnumber=options.cellnumber,
+        downsampling=options.downsampling
     )
 
     try:
-        DictInfo["Infofile"] = run.read_info_file()
-        DictInfo["List_csv_files"] = run.import_all_event()
-        DictInfo["adata_conc"] = run.concatenate_dataframe(DictInfo["Infofile"], DictInfo["List_csv_files"])
-        DictInfo["pathmarkerfile"], DictInfo["basenamemarkerfilepath"] = run.loadmarkers()
-        DictInfo["markertoexclude"] = run.checkmarkers()
-        DictInfo["markertoinclude"] = run.splitmarker()
+        # Read and process the info file
+        DictInfo["Infofile"] = data_importer.read_info_file()
 
+        # Import all events from the specified files
+        DictInfo["List_csv_files"] = data_importer.import_all_event()
+
+        # Concatenate dataframes into an AnnData object
+        DictInfo["adata_conc"] = data_importer.concatenate_dataframe(DictInfo["Infofile"], DictInfo["List_csv_files"])
+
+        # Load and verify markers
+        DictInfo["pathmarkerfile"], DictInfo["basenamemarkerfilepath"] = data_importer.loadmarkers()
+        DictInfo["markertoexclude"] = data_importer.checkmarkers()
+        DictInfo["markertoinclude"] = data_importer.splitmarker()
+
+        # Initialize Clustering with necessary parameters
+        clustering = Clustering(
+            adata=DictInfo["adata_conc"],
+            output_folder=options.output_folder,
+            method=options.clustering,
+            k_coef=options.kmeancoef,
+            knn=options.knn,
+            resolution=options.resolution,
+            maxclus=options.maxclus,
+            thread=options.thread,
+            runtime=options.runtime,
+            batchcov=options.batchcov,
+            root_user=[1],
+            fnull=open(os.devnull, 'w'),
+            path_cycombine=os.path.dirname(os.path.realpath(__file__)) + '/cycombine.Rscript',
+            markertoinclude=DictInfo["markertoinclude"],
+            marker_array=DictInfo["markertoexclude"]
+        )
+
+        # Perform clustering and analysis based on runtime option
         if options.runtime != 'UMAP':
-            if options.clustering == "Phenograph":
-                DictInfo["phenograph_adata"] = run.runclustering(method="Phenograph")
-            elif options.clustering == "VIA":
-                DictInfo["via_adata"] = run.runclustering(method="VIA")
-            elif options.clustering == "FlowSOM":
-                DictInfo["flowsom_adata"] = run.runclustering(method="FlowSOM")
-            run.groupbycluster()
-            run.groupbysample()
-            run.exporting()
+            DictInfo["clustered_adata"] = clustering.runclustering()
 
-        if options.runtime == 'UMAP':
-            run.runtimeumap()
-            run.groupbysample()
-            run.exporting()
+            # Initialize Grouping for organizing data by cluster or sample
+            grouping = Grouping(
+                adata=DictInfo["clustered_adata"],
+                output_folder=options.output_folder,
+                tool=options.clustering,
+                analysis_name=options.analysis_name,
+                runtime=options.runtime
+            )
+
+            # Execute grouping methods
+            grouping.groupbycluster()
+            grouping.groupbysample()
+
+            # Initialize Visualization to generate plots and visual analysis
+            visualization = Visualization(
+                adata=DictInfo["clustered_adata"],
+                output_folder=options.output_folder,
+                tool=options.clustering,
+                runtime=options.runtime,
+                analysis_name=options.analysis_name
+            )
+            visualization.generation_concatenate()
+            visualization.plot_umap()
+            visualization.plot_umap_expression()
+            visualization.plot_frequency()
+            visualization.plot_frequency_ptz()
+            visualization.plot_cell_clusters()
+            visualization.plot_cell_obs()
+            visualization.matrixplot()
+
+            # Initialize Exporting for data exportation
+            exporting = Exporting(
+                adata=DictInfo["clustered_adata"],
+                output_folder=options.output_folder,
+                analysis_name=options.analysis_name,
+                runtime=options.runtime,
+                tool=options.clustering,
+                k_coef=options.kmeancoef,
+                knn=options.knn
+            )
+
+            # Run exporting method to save results
+            exporting.exporting()
+
+        elif options.runtime == 'UMAP':
+            logger.error("UMAP specific operations can be implemented here.")
 
     except Exception as e:
-        traceback.print_tb(sys.exc_info()[2])
-        print(f"Error: {e.args}")
-
-        run.log.error("Execution Error!")
-        sys.exit(1)
+        # Capture and log any exceptions that occur during execution
+        logger.error("Execution Error!")
+        sys.exit(1)  # Exit the program with an error code
 
 if __name__ == '__main__':
     main()
