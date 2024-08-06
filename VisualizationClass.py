@@ -241,7 +241,7 @@ class Visualization:
                 stacked=True,
                 legend=False,
                 ax=ax1,
-                color=self.palette)
+                color=self.palette,linewith=2)
             ax1.set_xlabel("Percentage Frequency")
             ax1.set_ylabel("Cluster")
             ax1.grid(False)
@@ -263,7 +263,7 @@ class Visualization:
                         legend=False,
                         color=self.palette,
                         ax=ax3,
-                        fontsize=5)
+                        fontsize=5,linewith=2)
                     ax3.set_xlabel("Cluster Percentage Frequency")
                     ax3.set_ylabel(_)
                     ax3.grid(False)
@@ -277,11 +277,11 @@ class Visualization:
             ax2 = self.adata.obs.groupby("pheno_leiden")["Sample"].value_counts(
                 normalize=False).unstack().plot.barh(
                 stacked=True,
-                legend=False, ax=ax2, color=self.palette)
+                legend=False, ax=ax2, color=self.palette, linewith=2)
             ax2.set_xlabel("Relative Frequency")
             ax2.set_ylabel("Cluster")
             ax2.grid(False)
-            ax2.legend(bbox_to_anchor=(1.2, 1.0))
+            ax2.legend(bbox_to_anchor=(1.2, 1.0), fontsize=12, frameon=False, title = _)
             fig.savefig("/".join([self.FREQUENCY_folder, ".".join(["ClusterFrequencyNotNormalized", "pdf"])]),
                         dpi=self.dpi, bbox_inches='tight',
                         format="pdf")
@@ -307,66 +307,59 @@ class Visualization:
         fig_list = []
 
         # Define combinations of columns to loop over
-        group_combinations = [
-            ["Time_point", "Condition"],
-            ["Sample", "Cell_type"],
-            ["EXP", "Time_point"]
-        ]
+        group_combinations = ["Time_point", "Condition", "Sample", "Cell_type", "EXP"]
 
-        for group_cols in group_combinations:
-            # Check if there is more than one unique combination in group_cols
-            unique_combinations = self.adata.obs[group_cols].drop_duplicates()
-            if len(unique_combinations) <= 1:
-                self.log.info(f"Skipping plot for {', '.join(group_cols)} as there is only one unique combination.")
+        for group_col in group_combinations:  # Iterate through each column name
+            # Check if there is more than one unique value in group_col
+            unique_values = self.adata.obs[group_col].drop_duplicates()
+            if len(unique_values) <= 1:
+                self.log.info(f"Skipping plot for {group_col} as there is only one unique value.")
                 continue
 
-            # Compute frequencies for each combination of group_cols and pheno_leiden
-            df = self.adata.obs.groupby(group_cols + ["pheno_leiden"]).size().unstack(fill_value=0)
+            # Compute frequencies for each combination of group_col and pheno_leiden
+            df = self.adata.obs.groupby([group_col, "pheno_leiden"]).size().unstack(fill_value = 0)
 
             # Normalize to percentage
-            df = df.divide(df.sum(axis=1), axis=0) * 100
+            df = df.divide(df.sum(axis = 1), axis = 0) * 100
 
             # Replace NaN or infinite values with zero
-            df.replace([np.inf, -np.inf], np.nan, inplace=True)
-            df.fillna(0, inplace=True)
+            df.replace([np.inf, -np.inf], np.nan, inplace = True)
+            df.fillna(0, inplace = True)
 
             # Create a new figure for each plot
-            fig, (ax1, ax2) = plt.subplots(1, 2, constrained_layout=True, figsize=(20, 10))
+            fig, (ax1, ax2) = plt.subplots(1, 2, constrained_layout = True, figsize = (20, 10))
             fig_list.append(fig)  # Add the figure to the list
 
             if not df.empty and np.isfinite(df.values).all():
                 # Perform hierarchical clustering and plot dendrogram
-                Z = linkage(df, method='ward', optimal_ordering=True)
-                dn = dendrogram(Z, get_leaves=True, orientation='left', labels=df.index, no_plot=True)
-                dendrogram(Z, get_leaves=True, orientation='left', labels=df.index,
-                           color_threshold=0, above_threshold_color='k', ax=ax1)
-                df.loc[dn['ivl']].plot.barh(stacked=True, ax=ax2, color=self.palette, legend=False)
+                Z = linkage(df, method = 'ward', optimal_ordering = True)
+                dn = dendrogram(Z, get_leaves = True, orientation = 'left', labels = df.index, no_plot = True)
+                dendrogram(Z, get_leaves = True, orientation = 'left', labels = df.index,
+                           color_threshold = 0, above_threshold_color = 'k', ax = ax1)
+                df.loc[dn['ivl']].plot.barh(stacked = True, ax = ax2, color = self.palette, legend = False,
+                                            linewidth=1)
 
                 # Set axis labels and appearance
-                ax1.set(yticklabels=[], xticklabels=[])
+                ax1.set(yticklabels = [], xticklabels = [])
                 ax1.grid(False)
-                ax2.tick_params(left=False)
+                ax2.tick_params(left = False)
                 ax2.grid(False)
                 ax1.axis('off')
                 ax2.set_ylabel(" ")
                 ax2.set_xlabel("Percentage Frequency")
-                ax2.legend(bbox_to_anchor=(1.2, 1.0), title='Cluster')
+                ax2.legend(bbox_to_anchor = (1.2, 1.0), title = 'Cluster',fontsize=12, frameon=False)
                 ax2.spines['top'].set_visible(False)
                 ax2.spines['right'].set_visible(False)
                 ax2.spines['left'].set_visible(False)
             else:
-                ax1.text(0.5, 0.5, f'No data available for {", ".join(group_cols)}', horizontalalignment='center',
-                         verticalalignment='center', fontsize=12, transform=ax1.transAxes)
-                ax2.text(0.5, 0.5, f'No data available for {", ".join(group_cols)}', horizontalalignment='center',
-                         verticalalignment='center', fontsize=12, transform=ax2.transAxes)
+                ax1.text(0.5, 0.5, f'No data available for {group_col}', horizontalalignment = 'center',
+                         verticalalignment = 'center', fontsize = 12, transform = ax1.transAxes)
+                ax2.text(0.5, 0.5, f'No data available for {group_col}', horizontalalignment = 'center',
+                         verticalalignment = 'center', fontsize = 12, transform = ax2.transAxes)
 
             # Save the figure
-            fig.savefig(f"{self.FREQUENCY_folder}/SampleFrequency_{'_'.join(group_cols)}_Clusterized.pdf",
-                        dpi=self.dpi, bbox_inches='tight', format="pdf")
-
-        # Optionally, display all figures if running interactively
-        for fig in fig_list:
-            plt.show()
+            fig.savefig(f"{self.FREQUENCY_folder}/SampleFrequency_{group_col}_Clusterized.pdf",
+                        dpi = self.dpi, bbox_inches = 'tight', format = "pdf")
 
     def plot_cell_clusters(self):
         """

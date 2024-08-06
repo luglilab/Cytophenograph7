@@ -72,7 +72,7 @@ class Clustering:
         self._prepare_data()
 
         # Perform batch correction if specified
-        if self.batchcov:
+        if self.batchcov is True:
             self._batch_correction()
 
         # Standardize data
@@ -120,6 +120,7 @@ class Clustering:
 
     def _batch_correction(self):
         """Performs batch correction using an external R script."""
+        self.log.info("Performs batch correction using cyCombine")
         subprocess.check_call(
             ['Rscript', '--vanilla', self.path_cycombine, f"{self.output_folder}/tmp.csv", self.output_folder,
              str(self.maxclus), str(self.adata.shape[1])],

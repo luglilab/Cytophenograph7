@@ -25,14 +25,14 @@ def parse_arguments():
     parser.add_option('-a', action = "store_true", dest = "arcsin", default = False,
                       help = 'Perform arcsinh transformation on data.')
     parser.add_option('-b', action = "store_true", dest = "batch", default = False,
-                      help = 'Perform batch correction with Scanorama.')
+                      help = 'Perform batch correction with cyCombine.')
     parser.add_option('-c', type = 'choice', choices = ['Phenograph', 'VIA', 'FlowSOM'], dest = "clustering",
                       default = "Phenograph",
                       help = 'Tool selecting for clustering. Options: [Phenograph, VIA, FlowSOM].')
     parser.add_option('-d', action = "store", dest = "mindist", default = 0.5, type = float,
                       help = 'min_dist parameter for UMAP generation.')
     parser.add_option('-e', type = 'choice', choices = ['Sample', 'Cell_type', 'ID', 'EXP', 'Time_point', 'Condition'],
-                      dest = "batchcov", default = "Sample", help = 'Covariate to correct with Scanorama.')
+                      dest = "batchcov", default = "Sample", help = 'Covariate to correct with cyCombine.')
     parser.add_option('-f', type = 'choice', choices = ['All', 'Balanced', 'Fixed'], dest = "downsampling",
                       default = "All", help = 'Concatenation Method: [All, Balanced, Fixed].')
     parser.add_option('-g', action = "store", dest = "cellnumber", default = 1000, type = int,
