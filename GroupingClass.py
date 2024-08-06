@@ -1,8 +1,9 @@
 import os
 import pandas as pd
 import fcsy
-from fcsy import DataFrame
-
+from LogClass import LoggerSetup
+import warnings
+warnings.filterwarnings("ignore")
 
 class Grouping:
     def __init__(self, adata, output_folder, tool, analysis_name, runtime):
@@ -21,6 +22,8 @@ class Grouping:
         self.analysis_name = analysis_name
         self.runtime = runtime
         self.adataback = adata.copy()  # Back up of original data
+        self.log = LoggerSetup.setup_logging()
+        warnings.filterwarnings("ignore")
 
     def createdir(self, path):
         """

@@ -5,9 +5,10 @@ import pandas as pd
 import anndata
 import scanpy as sc
 import fcsy
+import warnings
 from fcsy import DataFrame
-import logging
 from LogClass import LoggerSetup
+warnings.filterwarnings("ignore")
 
 class DataImporter:
     """
@@ -34,14 +35,9 @@ class DataImporter:
         self.anndata_list = []  # List to hold AnnData objects for each file
         self.cleaning = {}  # Dictionary to hold cleaning statistics
         # Set up logging
-        self.log = logging.getLogger(__name__)
-        self.log.setLevel(logging.INFO)
+        self.log = LoggerSetup.setup_logging()
+        sc.settings.verbosity = 0
 
-        # Ensure that the logging handler is set up only once
-        if not self.log.handlers:
-            handler = logging.StreamHandler(sys.stdout)
-            handler.setFormatter(CustomFormatter())
-            self.log.addHandler(handler)
 
     def read_info_file(self):
         """
@@ -121,7 +117,8 @@ class DataImporter:
                     self.adata = self.anndata_list[0].concatenate(self.anndata_list[1:], index_unique=None)
 
                 # Set raw values and var names
-                self.adata.layers['raw_value'] = self.adata.X
+
+                self.adata.layers['raw_value'] =  self.adata.X
                 self.adata.var_names = [name.split(":: ")[-1] for name in self.adata.var_names]
 
             except (ValueError, Exception) as e:
@@ -144,7 +141,7 @@ class DataImporter:
         self.log.info(f"{self.adata.shape[0]} cells undergo clustering analysis")
 
         # Update layers and raw data
-        self.adata.layers['raw_value'] = self.adata.X
+        # self.adata.layers['raw_value'] = self.adata.X
         self.adata.raw = self.adata
         return self.adata
 

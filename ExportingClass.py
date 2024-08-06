@@ -1,9 +1,10 @@
 import os
 import scipy.sparse
-import logging
 from sklearn.preprocessing import MinMaxScaler
 import scanpy as sc
 import warnings
+from LogClass import LoggerSetup
+warnings.filterwarnings("ignore")
 
 class Exporting:
     def __init__(self, adata, output_folder, analysis_name, runtime, tool, k_coef=None, knn=None):
@@ -25,18 +26,11 @@ class Exporting:
         self.tool = tool
         self.k_coef = k_coef
         self.knn = knn
-        self.log = logging.getLogger(__name__)
-        self.log.setLevel(logging.INFO)
         self.scaler = MinMaxScaler(feature_range=(0, 1))
         # Set up logging
-        self.log = logging.getLogger(__name__)
-        self.log.setLevel(logging.INFO)
+        self.log = LoggerSetup.setup_logging()
+        sc.settings.verbosity = 0
 
-        # Ensure that the logging handler is set up only once
-        if not self.log.handlers:
-            handler = logging.StreamHandler()
-            handler.setFormatter(logging.Formatter('%(message)s'))
-            self.log.addHandler(handler)
 
     sc.settings.verbosity = 0
     warnings.filterwarnings("ignore", category = FutureWarning)

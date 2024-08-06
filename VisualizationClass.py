@@ -7,8 +7,9 @@ from sklearn.preprocessing import MinMaxScaler
 from seaborn import color_palette
 import seaborn as sns
 from scipy.cluster.hierarchy import dendrogram, linkage
-import logging
-# from palette import palette28,palette102
+from LogClass import LoggerSetup
+import warnings
+warnings.filterwarnings("ignore")
 from pypdf import PdfWriter, PdfReader, PageObject, Transformation
 
 class Visualization:
@@ -29,15 +30,13 @@ class Visualization:
         #self.palette28 = palette28
         #self.palette102 = palette102
         self.dpi = 300
-        self.log = logging.getLogger(__name__)
-        self.log.setLevel(logging.INFO)
         self.runtime = runtime
         self.analysis_name = analysis_name
         # Ensure that the logging handler is set up only once
-        if not self.log.handlers:
-            handler = logging.StreamHandler()
-            handler.setFormatter(logging.Formatter('%(message)s'))
-            self.log.addHandler(handler)
+        self.log = LoggerSetup.setup_logging()
+        sc.settings.autoshow = False
+        sc.settings.set_figure_params(dpi = 300, facecolor = 'white', dpi_save = 330,
+                                      figsize = (10, 10))
 
     def generation_concatenate(self):
         """
@@ -95,6 +94,7 @@ class Visualization:
             self.createdir(self.UMAP_folder)
             sc.settings.figdir = self.UMAP_folder
             self.palette = color_palette("husl", len(self.adata.obs["pheno_leiden"].unique()))
+            self.dotsize=30
             # # set palette
             # if len(self.adata.obs["pheno_leiden"].unique()) < 28:
             #     self.palette = self.palette28
@@ -105,23 +105,23 @@ class Visualization:
             sc.pl.umap(self.adata, color="pheno_leiden",
                        legend_fontoutline=2, show=False, add_outline=False, frameon=False,
                        title="UMAP Plot", palette=self.palette,
-                       s=50, save=".".join(["".join([str(self.tool), "_cluster"]), "pdf"]))
+                       s=self.dotsize, save=".".join(["".join([str(self.tool), "_cluster"]), "pdf"]))
             sc.pl.umap(self.adata, color="pheno_leiden",
                        legend_fontoutline=4, show=False, add_outline=False, frameon=False,
                        legend_loc='on data', title="UMAP Plot", palette=self.palette,
-                       s=50, save="_legend_on_data.".join(["".join([str(self.tool), "_cluster"]), "pdf"]))
+                       s=self.dotsize, save="_legend_on_data.".join(["".join([str(self.tool), "_cluster"]), "pdf"]))
             # format svg
             sc.pl.umap(self.adata, color="pheno_leiden",
                        legend_fontoutline=4, show=False, add_outline=False, frameon=False,
                        legend_loc='on data', title="UMAP Plot", palette=self.palette,
-                       s=50, save="_legend_on_data.".join(["".join([str(self.tool), "_cluster"]), "svg"]))
+                       s=self.dotsize, save="_legend_on_data.".join(["".join([str(self.tool), "_cluster"]), "svg"]))
             # plot umap with info file condition
             for _ in ['Sample', 'Cell_type', 'EXP', 'ID', 'Time_point', 'Condition']:
                 if len(self.adata.obs[_].unique()) > 1:
                     sc.pl.umap(self.adata, color=_, legend_fontoutline=2, show=False, add_outline=False,
                                frameon=False,
                                title="UMAP Plot",
-                               s=50, save=".".join(["_".join([str(self.tool), _]), "pdf"]))
+                               s=self.dotsize, save=".".join(["_".join([str(self.tool), _]), "pdf"]))
                 else:
                     continue
             # plot umap grouped with gray background
@@ -131,7 +131,7 @@ class Visualization:
                         sc.pl.umap(self.adata, color=_, groups=[batch], na_in_legend=False,
                                    title="UMAP Plot",
                                    legend_fontoutline=2, show=False, add_outline=False, frameon=False,
-                                   s=50, save=".".join(["_".join([_ + str(batch), _]), "pdf"]))
+                                   s=self.dotsize, save=".".join(["_".join([_ + str(batch), _]), "pdf"]))
                 else:
                     continue
             # scale data
@@ -141,13 +141,13 @@ class Visualization:
             for _ in list(self.adata.var_names.unique()):
                 if self.scaler is True:
                     sc.pl.umap(self.adata, color=_, show=False, layer="raw_value",
-                               legend_fontoutline=1, na_in_legend=False, s=30,
+                               legend_fontoutline=1, na_in_legend=False, s=self.dotsize,
                                title=_, cmap='turbo', groups=[_],
                                save=".".join([''.join(e for e in _ if e.isalnum()), "pdf"])
                                )
                 else:
                     sc.pl.umap(self.adata, color=_, show=False, layer="scaled01",
-                               legend_fontoutline=1, na_in_legend=False, s=30,
+                               legend_fontoutline=1, na_in_legend=False, s=self.dotsize,
                                title=_, cmap='turbo', groups=[_],
                                save=".".join([''.join(e for e in _ if e.isalnum()), "pdf"])
                                )
@@ -157,7 +157,7 @@ class Visualization:
             self.adata.layers['scaled01'] = scaler.fit_transform(self.adata.X)
             for _ in list(self.adata.var_names.unique()):
                 sc.pl.umap(self.adata, color=_, show=False, layer="scaled01",
-                           legend_fontoutline=1, na_in_legend=False, s=30, frameon=False,
+                           legend_fontoutline=1, na_in_legend=False, s=self.dotsize, frameon=False,
                            title=_, cmap='turbo', groups=[_],
                            save=".".join([''.join(e for e in _ if e.isalnum()), "pdf"])
                            )
@@ -167,7 +167,7 @@ class Visualization:
                                cmap=self.palette, legend_fontoutline=2, show=False, add_outline=False,
                                frameon=False,
                                title="UMAP Plot",
-                               s=50, save=".".join(["_".join([str(self.tool), _]), "pdf"]))
+                               s=self.dotsize, save=".".join(["_".join([str(self.tool), _]), "pdf"]))
                 else:
                     continue
             for _ in ['Cell_type', 'EXP', 'Time_point', 'Condition']:
@@ -176,7 +176,7 @@ class Visualization:
                         sc.pl.umap(self.adata, color=_, groups=[batch], na_in_legend=False,
                                    title="UMAP Plot",
                                    legend_fontoutline=2, show=False, add_outline=False, frameon=False,
-                                   s=50, save=".".join(["_".join([_ + str(batch), _]), "pdf"])
+                                   s=self.dotsize, save=".".join(["_".join([_ + str(batch), _]), "pdf"])
                                    )
                 else:
                     continue
@@ -431,7 +431,7 @@ class Visualization:
                                show=False,
                                layer="scaled01",
                                legend_fontoutline=1, frameon=False,
-                               na_in_legend=False, s=50, cmap='turbo',
+                               na_in_legend=False, s=self.dotsize, cmap='turbo',
                                save=".".join(["".join([str(self.tool), _ + "_ALL"]), "pdf"])
                                )
                 else:
@@ -447,13 +447,14 @@ class Visualization:
         self.matrixplot_folder = "/".join([self.outfig, "HEATMAP"])
         self.createdir(self.matrixplot_folder)
         sc.settings.figdir = self.matrixplot_folder
-        print(self.adata)
         if self.runtime != 'UMAP':
-            sc.pl.matrixplot(self.adata, list(self.adata.var_names), "pheno_leiden",
+            sc.pl.matrixplot(sc.pp.scale(self.adata,max_value=6,copy=True,layer="raw_value"),
+                             list(self.adata.var_names), "pheno_leiden",
                              dendrogram=True, vmin=-1, vmax=1, cmap='RdBu_r',layer = "raw_value",
                              show=False, swap_axes=False, return_fig=False, use_raw=False, log=False,
                              save=".".join(["matrixplot_mean_z_score", "pdf"]))
-            sc.pl.matrixplot(self.adata, list(self.adata.var_names), "pheno_leiden",
+            sc.pl.matrixplot(sc.pp.scale(self.adata,max_value=6,copy=True,layer="raw_value"),
+                             list(self.adata.var_names), "pheno_leiden",
                              dendrogram=True, vmin=-1, vmax=1, cmap='RdBu_r', use_raw=False, log=False,
                              show=False, swap_axes=False, return_fig=False,layer = "raw_value",
                              save=".".join(["matrixplot_mean_z_score", "svg"]))

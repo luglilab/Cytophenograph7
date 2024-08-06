@@ -7,8 +7,9 @@ import umap
 import flowsom as fs
 import pyVIA.core as via
 import anndata as ad
-import logging
+from LogClass import LoggerSetup
 import warnings
+warnings.filterwarnings("ignore")
 
 class Clustering:
     """
@@ -49,17 +50,9 @@ class Clustering:
         self.path_cycombine = path_cycombine
         self.markertoinclude = markertoinclude
         self.marker_array = marker_array
-        self.log = logging.getLogger(__name__)
-        self.log.setLevel(logging.INFO)
-
-        # Ensure that the logging handler is set up only once
-        if not self.log.handlers:
-            handler = logging.StreamHandler()
-            handler.setFormatter(logging.Formatter('%(message)s'))
-            self.log.addHandler(handler)
+        self.log = LoggerSetup.setup_logging()
 
     sc.settings.verbosity = 0
-    warnings.filterwarnings("ignore", category = FutureWarning)
 
     def runclustering(self):
         """
