@@ -3,12 +3,15 @@ import numpy as np
 import scanpy as sc
 import os
 import matplotlib.pyplot as plt
+from matplotlib.colors import ListedColormap
 from sklearn.preprocessing import MinMaxScaler
 from seaborn import color_palette
 import seaborn as sns
 from scipy.cluster.hierarchy import dendrogram, linkage
 from LogClass import LoggerSetup
 import warnings
+import pacmap
+from seaborn import color_palette
 warnings.filterwarnings("ignore")
 from pypdf import PdfWriter, PdfReader, PageObject, Transformation
 
@@ -241,7 +244,7 @@ class Visualization:
                 stacked=True,
                 legend=False,
                 ax=ax1,
-                color=self.palette,linewith=2)
+                color=self.palette, linewidth=2)
             ax1.set_xlabel("Percentage Frequency")
             ax1.set_ylabel("Cluster")
             ax1.grid(False)
@@ -263,7 +266,7 @@ class Visualization:
                         legend=False,
                         color=self.palette,
                         ax=ax3,
-                        fontsize=5,linewith=2)
+                        fontsize=5, linewidth=2)
                     ax3.set_xlabel("Cluster Percentage Frequency")
                     ax3.set_ylabel(_)
                     ax3.grid(False)
@@ -277,7 +280,7 @@ class Visualization:
             ax2 = self.adata.obs.groupby("pheno_leiden")["Sample"].value_counts(
                 normalize=False).unstack().plot.barh(
                 stacked=True,
-                legend=False, ax=ax2, color=self.palette, linewith=2)
+                legend=False, ax=ax2, color=self.palette, linewidth=5)
             ax2.set_xlabel("Relative Frequency")
             ax2.set_ylabel("Cluster")
             ax2.grid(False)
@@ -416,6 +419,7 @@ class Visualization:
         Plot UMAP projections with cell-type information overlayed.
         Returns: UMAP plots saved in the specified format.
         """
+        sc.settings.figdir = self.UMAP_folder
         if self.runtime != 'Clustering':
             for _ in ['Cell_type', 'EXP', 'Time_point', 'Condition']:
                 if len(self.adata.obs[_].unique()) > 1:
@@ -476,3 +480,109 @@ class Visualization:
         """
         if not os.path.exists(directory):
             os.makedirs(directory)
+
+    def plot_pacmap(self):
+        """
+        Function for generating PDF files with PACMAP plots.
+        Returns: PDF files with PACMAP plots.
+        """
+        if self.runtime == 'Full':
+            # create output directory
+            self.outfig = self.output_folder
+            self.PACMAP_folder = "/".join([self.outfig, "PACMAP"])
+            self.createdir(self.PACMAP_folder)
+            sc.settings.figdir = self.PACMAP_folder
+            self.palette = color_palette("husl", len(self.adata.obs["pheno_leiden"].unique()))
+            self.dotsize = 30
+            # # set palette
+            # if len(self.adata.obs["pheno_leiden"].unique()) < 28:
+            #     self.palette = self.palette28
+            # else:
+            #     self.palette = color_palette("husl", len(self.adata.obs["pheno_leiden"].unique()))
+
+            # plot umap + clustering
+            # Prepare PACMAP model
+            pacmap_model = pacmap.PaCMAP(n_components = 2, n_neighbors = 10, MN_ratio = 0.5, FP_ratio = 2.0)
+
+            # Fit and transform data
+            self.adata.obsm['X_umap'] = pacmap_model.fit_transform(self.adata.X)
+            sc.pl.umap(self.adata, color = "pheno_leiden",
+                       legend_fontoutline = 2, show = False, add_outline = False, frameon = False,
+                       title = "UMAP Plot", palette = self.palette,
+                       s = self.dotsize, save = ".".join(["".join([str(self.tool), "_cluster"]), "pdf"]))
+            sc.pl.umap(self.adata, color = "pheno_leiden",
+                       legend_fontoutline = 4, show = False, add_outline = False, frameon = False,
+                       legend_loc = 'on data', title = "UMAP Plot", palette = self.palette,
+                       s = self.dotsize, save = "_legend_on_data.".join(["".join([str(self.tool), "_cluster"]), "pdf"]))
+            # format svg
+            sc.pl.umap(self.adata, color = "pheno_leiden",
+                       legend_fontoutline = 4, show = False, add_outline = False, frameon = False,
+                       legend_loc = 'on data', title = "UMAP Plot", palette = self.palette,
+                       s = self.dotsize, save = "_legend_on_data.".join(["".join([str(self.tool), "_cluster"]), "svg"]))
+            # plot umap with info file condition
+            for _ in ['Sample', 'Cell_type', 'EXP', 'ID', 'Time_point', 'Condition']:
+                if len(self.adata.obs[_].unique()) > 1:
+                    sc.pl.umap(self.adata, color = _, legend_fontoutline = 2, show = False, add_outline = False,
+                               frameon = False,
+                               title = "UMAP Plot",
+                               s = self.dotsize, save = ".".join(["_".join([str(self.tool), _]), "pdf"]))
+                else:
+                    continue
+            # plot umap grouped with gray background
+            for _ in ['Cell_type', 'EXP', 'Time_point', 'Condition']:
+                if len(self.adata.obs[_].unique()) > 1:
+                    for batch in list(self.adata.obs[_].unique()):
+                        sc.pl.umap(self.adata, color = _, groups = [batch], na_in_legend = False,
+                                   title = "UMAP Plot",
+                                   legend_fontoutline = 2, show = False, add_outline = False, frameon = False,
+                                   s = self.dotsize, save = ".".join(["_".join([_ + str(batch), _]), "pdf"]))
+                else:
+                    continue
+            # scale data
+            self.adata.X = self.adata.layers['raw_value']
+            self.scaler = MinMaxScaler(feature_range = (0, 1))
+            self.adata.layers['scaled01'] = self.scaler.fit_transform(self.adata.X)
+            for _ in list(self.adata.var_names.unique()):
+                if self.scaler is True:
+                    sc.pl.umap(self.adata, color = _, show = False, layer = "raw_value",
+                               legend_fontoutline = 1, na_in_legend = False, s = self.dotsize,
+                               title = _, cmap = 'turbo', groups = [_],
+                               save = ".".join([''.join(e for e in _ if e.isalnum()), "pdf"])
+                               )
+                else:
+                    sc.pl.umap(self.adata, color = _, show = False, layer = "scaled01",
+                               legend_fontoutline = 1, na_in_legend = False, s = self.dotsize,
+                               title = _, cmap = 'turbo', groups = [_],
+                               save = ".".join([''.join(e for e in _ if e.isalnum()), "pdf"])
+                               )
+        elif self.runtime == 'UMAP':
+            sc.settings.figdir = self.outfig
+            scaler = MinMaxScaler(feature_range = (0, 1))
+            self.adata.layers['scaled01'] = scaler.fit_transform(self.adata.X)
+            for _ in list(self.adata.var_names.unique()):
+                sc.pl.umap(self.adata, color = _, show = False, layer = "scaled01",
+                           legend_fontoutline = 1, na_in_legend = False, s = self.dotsize, frameon = False,
+                           title = _, cmap = 'turbo', groups = [_],
+                           save = ".".join([''.join(e for e in _ if e.isalnum()), "pdf"])
+                           )
+            for _ in ['Sample', 'Cell_type', 'EXP', 'ID', 'Time_point', 'Condition']:
+                if len(self.adata.obs[_].unique()) > 1:
+                    sc.pl.umap(self.adata, color = _,
+                               cmap = self.palette, legend_fontoutline = 2, show = False, add_outline = False,
+                               frameon = False,
+                               title = "UMAP Plot",
+                               s = self.dotsize, save = ".".join(["_".join([str(self.tool), _]), "pdf"]))
+                else:
+                    continue
+            for _ in ['Cell_type', 'EXP', 'Time_point', 'Condition']:
+                if len(self.adata.obs[_].unique()) > 1:
+                    for batch in list(self.adata.obs[_].unique()):
+                        sc.pl.umap(self.adata, color = _, groups = [batch], na_in_legend = False,
+                                   title = "UMAP Plot",
+                                   legend_fontoutline = 2, show = False, add_outline = False, frameon = False,
+                                   s = self.dotsize, save = ".".join(["_".join([_ + str(batch), _]), "pdf"])
+                                   )
+                else:
+                    continue
+        elif self.runtime == 'Clustering':
+            pass

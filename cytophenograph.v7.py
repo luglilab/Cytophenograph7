@@ -148,6 +148,8 @@ def main():
             visualization.generation_concatenate()
             visualization.plot_umap()
             visualization.plot_umap_expression()
+            visualization.plot_pacmap()
+            #visualization.plot_pacmap_expression()
             visualization.plot_frequency()
             visualization.plot_frequency_ptz()
             visualization.plot_cell_clusters()
