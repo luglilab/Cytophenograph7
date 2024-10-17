@@ -9,7 +9,7 @@ from GroupingClass import Grouping
 from ExportingClass import Exporting
 from LogClass import LoggerSetup  # Correct import from ClassLog
 import warnings
-
+from StreamClass import StreamTrajectory
 
 
 def parse_arguments():
@@ -64,6 +64,11 @@ def parse_arguments():
                       help = 'Apply compensation to the data. Default: False')
     parser.add_option('-j', action = "store_true", dest = "transformation", default = False,
                       help = 'Apply transformation to the data. Default: False')
+    parser.add_option('--dimensionality_reduction', type = 'choice', choices = ['UMAP', 'PaCMAP'],
+                      dest = "dimensionality_reduction", default = "UMAP",
+                      help = 'Dimensionality reduction method: [UMAP, PaCMAP]. Default: UMAP')
+    parser.add_option('-T', action = "store_true", dest = "trajectory_analysis", default = False,
+                      help = "Perform trajectory analysis using StreamTrajectory. Default: False.")
     return parser.parse_args()
 
 
@@ -117,12 +122,13 @@ def main():
             fnull = open(os.devnull, 'w'),
             path_cycombine = os.path.dirname(os.path.realpath(__file__)) + '/cycombine.Rscript',
             markertoinclude = DictInfo["markertoinclude"],
-            marker_array = DictInfo["markertoexclude"]
+            marker_array = DictInfo["markertoexclude"],
+            dimensionality_reduction = options.dimensionality_reduction
         )
 
         # Perform clustering and analysis based on runtime option
         if options.runtime != 'UMAP':
-            DictInfo["clustered_adata"] = clustering.runclustering()
+            DictInfo["clustered_adata"] = clustering.run_clustering()
 
             # Initialize Grouping for organizing data by cluster or sample
             grouping = Grouping(
@@ -143,13 +149,12 @@ def main():
                 output_folder = options.output_folder,
                 tool = options.clustering,
                 runtime = options.runtime,
-                analysis_name = options.analysis_name
+                analysis_name = options.analysis_name,
+                dimensionality_reduction = options.dimensionality_reduction
             )
             visualization.generation_concatenate()
             visualization.plot_umap()
             visualization.plot_umap_expression()
-            visualization.plot_pacmap()
-            #visualization.plot_pacmap_expression()
             visualization.plot_frequency()
             visualization.plot_frequency_ptz()
             visualization.plot_cell_clusters()
@@ -169,6 +174,16 @@ def main():
 
             # Run exporting method to save results
             exporting.exporting()
+
+            # Perform trajectory analysis if the user has requested it
+            if options.trajectory_analysis:
+                logger.info("Performing trajectory analysis...")
+                trajectory = StreamTrajectory(
+                    adata=DictInfo["clustered_adata"],
+                    output_folder=options.output_folder,
+                    dimensionality_reduction=options.dimensionality_reduction
+                )
+                trajectory.elastic_principal_graph()
 
         elif options.runtime == 'UMAP':
             logger.info("Running UMAP specific operations...")
