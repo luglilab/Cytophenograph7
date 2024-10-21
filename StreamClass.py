@@ -10,17 +10,16 @@ import seaborn as sns
 import pylab as plt
 import matplotlib as mpl
 import warnings
-warnings.filterwarnings("ignore")
 from pandas.api.types import is_string_dtype,is_numeric_dtype
 from copy import deepcopy
 import itertools
-from scipy.spatial import distance,cKDTree,KDTree
+from scipy.spatial import distance,cKDTree
 from scipy import interpolate
 from scipy.signal import savgol_filter
 from sklearn.metrics.pairwise import pairwise_distances_argmin_min
 import math
 from matplotlib.patches import Polygon
-
+warnings.filterwarnings("ignore")
 # === StreamTrajectory Class ===
 
 class StreamTrajectory:
@@ -48,6 +47,26 @@ class StreamTrajectory:
         self.createdir(self.Trajectory_folder )
         self.runtime = runtime
         self.analysis_name = analysis_name
+        self.figsize = (7, 7)
+        self.palette28 = [
+            "#08519c", "#ff7f0e", "#1f6836", "#514888", "#b30000", "#5a3730", "#d638a6", "#595959", "#7c7c16",
+            "#77e398", "#3182bd", "#9e3a09", "#31a354", "#756bb1", "#ff0000", "#8c564b", "#e377c2", "#808080",
+            "#bcbd22", "#85b5d3", "#ffa85b", "#55cc79", "#a49dcb", "#ff4d4d", "#b37c71", "#f0b6de", "#a6a6a6",
+            "#dedf4d"]
+        self.palette102 = [
+            "#FFFF00", "#1CE6FF", "#FF34FF", "#FF4A46", "#008941", "#006FA6", "#A30059", "#FFDBE5", "#7A4900",
+            "#0000A6", "#63FFAC", "#B79762", "#004D43", "#8FB0FF", "#997D87", "#5A0007", "#809693", "#6A3A4C",
+            "#1B4400", "#4FC601", "#3B5DFF", "#4A3B53", "#FF2F80", "#61615A", "#BA0900", "#6B7900", "#00C2A0",
+            "#FFAA92", "#FF90C9", "#B903AA", "#D16100", "#DDEFFF", "#000035", "#7B4F4B", "#A1C299", "#300018",
+            "#0AA6D8", "#013349", "#00846F", "#372101", "#FFB500", "#C2FFED", "#A079BF", "#CC0744", "#C0B9B2",
+            "#C2FF99", "#001E09", "#00489C", "#6F0062", "#0CBD66", "#EEC3FF", "#456D75", "#B77B68", "#7A87A1",
+            "#788D66", "#885578", "#FAD09F", "#FF8A9A", "#D157A0", "#BEC459", "#456648", "#0086ED", "#886F4C",
+            "#34362D", "#B4A8BD", "#00A6AA", "#452C2C", "#636375", "#A3C8C9", "#FF913F", "#938A81", "#575329",
+            "#00FECF", "#B05B6F", "#8CD0FF", "#3B9700", "#04F757", "#C8A1A1", "#1E6E00", "#7900D7", "#A77500",
+            "#6367A9", "#A05837", "#6B002C", "#772600", "#D790FF", "#9B9700", "#549E79", "#FFF69F", "#201625",
+            "#72418F", "#BC23FF", "#99ADC0", "#3A2465", "#922329", "#5B4534", "#FDE8DC", "#404E55", "#0089A3",
+            "#CB7E98", "#A4E804", "#324E72"]
+        self.epg_nodes_pos = None
 
 
 # === Output Folder Management ===
@@ -212,7 +231,6 @@ class StreamTrajectory:
         nx.set_edge_attributes(flat_tree, values = dict_branches_len, name = 'len')
         return flat_tree
 
-
 # === Elastic Principal Graph Methods ===
 
     def seed_elastic_principal_graph(self, init_nodes_pos=None, init_edges=None, damping=0.75,
@@ -230,7 +248,7 @@ class StreamTrajectory:
             tmp = pd.DataFrame(embedding)
             tmp['cluster'] = clusters
             init_nodes_pos = tmp.groupby('cluster').mean().values
-            epg_nodes_pos = init_nodes_pos
+            self.epg_nodes_pos = init_nodes_pos
         elif self.typeclustering == 'FlowSOM':
             embedding = self.adata.obsm['X_umap']
             clusters = np.array(self.adata.obs['MetaCluster_Flowsom'].unique())
@@ -238,7 +256,7 @@ class StreamTrajectory:
             tmp = pd.DataFrame(embedding)
             tmp.index = clusters.index
             init_nodes_pos = tmp.groupby(clusters).mean().values
-            epg_nodes_pos = init_nodes_pos
+            self.epg_nodes_pos = init_nodes_pos
         elif self.typeclustering == 'VIA':
             embedding = self.adata.obsm['X_umap']
             clusters = np.array(self.adata.obs['MetaCluster_Flowsom'].unique())  ###
@@ -246,15 +264,15 @@ class StreamTrajectory:
             tmp = pd.DataFrame(embedding)
             tmp.index = clusters.index
             init_nodes_pos = tmp.groupby(clusters).mean().values
-            epg_nodes_pos = init_nodes_pos
+            self.epg_nodes_pos = init_nodes_pos
         else:
             print("Error typeclustering is wrong")
 
-        print('The number of initial nodes is ' + str(epg_nodes_pos.shape[0]))
+        print('The number of initial nodes is ' + str(self.epg_nodes_pos.shape[0]))
         if init_edges is None:
             # Minimum Spanning Tree
             print('Calculating minimum spanning tree...')
-            D = pairwise_distances(epg_nodes_pos)
+            D = pairwise_distances(self.epg_nodes_pos)
             G = nx.from_numpy_array(D)  # Use from_numpy_array instead
             mst = nx.minimum_spanning_tree(G)
             epg_edges = np.array(mst.edges())
@@ -263,9 +281,9 @@ class StreamTrajectory:
             epg_edges = init_edges
         # Store graph information and update self.adata
         epg = nx.Graph()
-        epg.add_nodes_from(range(epg_nodes_pos.shape[0]))
+        epg.add_nodes_from(range(self.epg_nodes_pos.shape[0]))
         epg.add_edges_from(epg_edges)
-        dict_nodes_pos = {i: x for i, x in enumerate(epg_nodes_pos)}
+        dict_nodes_pos = {i: x for i, x in enumerate(self.epg_nodes_pos)}
         nx.set_node_attributes(epg, values = dict_nodes_pos, name = 'pos')
         dict_branches = self.extract_branches(epg)
         flat_tree = self.construct_flat_tree(dict_branches)
@@ -310,32 +328,6 @@ class StreamTrajectory:
                     dict_branches[br_key]['len'] = 0  # Assign a default length
 
         return dict_branches
-
-    def construct_flat_tree(self, dict_branches):
-        flat_tree = nx.Graph()
-        flat_tree.add_nodes_from(list(set(itertools.chain.from_iterable(dict_branches.keys()))))
-        flat_tree.add_edges_from(dict_branches.keys())
-        root = list(flat_tree.nodes())[0]
-        edges = nx.bfs_edges(flat_tree, root)
-        nodes = [root] + [v for u, v in edges]
-        dict_nodes_label = dict()
-        for i, node in enumerate(nodes):
-            dict_nodes_label[node] = 'S' + str(i)
-        nx.set_node_attributes(flat_tree, values = dict_nodes_label, name = 'label')
-        dict_branches_color = dict()
-        dict_branches_len = dict()
-        dict_branches_nodes = dict()
-        dict_branches_id = dict()  # the direction of nodes for each edge
-        for x in dict_branches.keys():
-            dict_branches_color[x] = dict_branches[x]['color']
-            dict_branches_len[x] = dict_branches[x]['len']
-            dict_branches_nodes[x] = dict_branches[x]['nodes']
-            dict_branches_id[x] = dict_branches[x]['id']
-        nx.set_edge_attributes(flat_tree, values = dict_branches_nodes, name = 'nodes')
-        nx.set_edge_attributes(flat_tree, values = dict_branches_id, name = 'id')
-        nx.set_edge_attributes(flat_tree, values = dict_branches_color, name = 'color')
-        nx.set_edge_attributes(flat_tree, values = dict_branches_len, name = 'len')
-        return flat_tree
 
     def project_cells_to_epg(self):
         input_data = self.adata.obsm[self.dimensionality_reduction]
@@ -438,14 +430,15 @@ class StreamTrajectory:
 
 # === Elastic Principal Graph Methods ===
 
-    def elastic_principal_graph(self,epg_n_nodes=50, incr_n_nodes=30,
-                                epg_alpha=0.01,epg_mu=0.05,epg_lambda=0.05,
+    def elastic_principal_graph(self, epg_n_nodes=50, incr_n_nodes=30,
+                                epg_alpha=0.01, epg_mu=0.05, epg_lambda=0.05,
                                 epg_trimmingradius=float('inf'),  # Ensure infinity is correctly represented
                                 epg_finalenergy='Penalized',
                                 epg_beta=0.0, epg_n_processes=1,
                                 save_fig=False, fig_name='ElPiGraph_analysis.pdf', fig_path=None, fig_size=(8, 8)):
         if fig_path is None:
             fig_path = self.output_folder
+
         if 'seed_epg' in self.adata.uns_keys():
             epg = self.adata.uns['seed_epg']
             dict_nodes_pos = nx.get_node_attributes(epg, 'pos')
@@ -460,6 +453,7 @@ class StreamTrajectory:
                 self.adata.uns['params'] = dict()
             init_nodes_pos = None
             init_edges = None
+
         input_data = self.adata.obsm[self.dimensionality_reduction]
         print('Learning elastic principal graph...')
         pg_obj = elpigraph.computeElasticPrincipalTree(input_data, NumNodes = epg_n_nodes,
@@ -468,172 +462,53 @@ class StreamTrajectory:
                                                        alpha = epg_alpha, beta = epg_beta,
                                                        Do_PCA = False, CenterData = False,
                                                        n_cores = epg_n_processes)
-        epg_nodes_pos = pg_obj[0]['NodePositions']  # Assuming pg_obj is a list
+        self.epg_nodes_pos = pg_obj[0]['NodePositions']  # Assuming pg_obj is a list
         epg_edges = pg_obj[0]['Edges']
         edge_indices = epg_edges[0]  # Extract the edge indices
+
         if isinstance(edge_indices, np.ndarray):
             epg_edges = [tuple(edge) for edge in edge_indices.tolist()]  # Convert to list of tuples
         else:
             raise ValueError("Unexpected format for edges. Must be a NumPy array.")
+
         # Store graph information and update self.adata
         epg = nx.Graph()
-        epg.add_nodes_from(range(epg_nodes_pos.shape[0]))
+        epg.add_nodes_from(range(self.epg_nodes_pos.shape[0]))
         epg.add_edges_from(epg_edges)  # This should now work without errors
-        dict_nodes_pos = {i: x for i, x in enumerate(epg_nodes_pos)}
+        dict_nodes_pos = {i: x for i, x in enumerate(self.epg_nodes_pos)}
         nx.set_node_attributes(epg, values = dict_nodes_pos, name = 'pos')
+
         dict_branches = self.extract_branches(epg)
         flat_tree = self.construct_flat_tree(dict_branches)
         nx.set_node_attributes(flat_tree, values = {x: dict_nodes_pos[x] for x in flat_tree.nodes()}, name = 'pos')
+
         self.adata.uns['epg'] = deepcopy(epg)
         self.adata.uns['ori_epg'] = deepcopy(epg)
         self.adata.uns['epg_obj'] = deepcopy(pg_obj)
         self.adata.uns['ori_epg_obj'] = deepcopy(pg_obj)
         self.adata.uns['flat_tree'] = deepcopy(flat_tree)
+
         self.project_cells_to_epg()
         self.calculate_pseudotime()
         print('Number of branches after learning elastic principal graph: ' + str(len(dict_branches)))
+
+        # Ensure 'epg' key exists in 'params'
         if 'params' not in self.adata.uns_keys():
             self.adata.uns['params'] = dict()
+        if 'epg' not in self.adata.uns['params']:
+            self.adata.uns['params']['epg'] = dict()  # Initialize 'epg' key in 'params'
+
+        # Update 'epg' parameters
         self.adata.uns['params']['epg'].update(
             {'epg_alpha': epg_alpha, 'epg_lambda': epg_lambda, 'epg_mu': epg_mu,
              'epg_trimmingradius': epg_trimmingradius, 'epg_beta': epg_beta})
+
+        # Optionally save the figure
         if save_fig:
             f, ax = plt.subplots(figsize = fig_size)
             elpigraph.plot.PlotPG(input_data, pg_obj, Do_PCA = False, show_text = False, ax = ax)
             plt.savefig(os.path.join(fig_path, fig_name))
             plt.close(f)
-
-    def plot_flat_tree(self,color=None, dist_scale=1,
-                       fig_size=None, fig_ncol=3, fig_legend_ncol=1, fig_legend_order=None,
-                       vmin=None, vmax=None, alpha=0.8,
-                       pad=1.08, w_pad=None, h_pad=None,
-                       show_text=False, show_graph=False,
-                       save_fig=False, fig_path=None, fig_name='flat_tree.pdf'):
-        """Plot flat tree layout with cells colored by a specified annotation."""
-
-        if fig_path is None:
-            fig_path = self.output_folder
-        fig_size = mpl.rcParams['figure.figsize'] if fig_size is None else fig_size
-
-        # If no color variable is provided, default to ['label']
-        if color is None:
-            color = ['label']
-
-        # Remove duplicate keys in color list
-        color = list(dict.fromkeys(color))
-
-        # Prepare annotations for coloring the plot
-        dict_ann = {}
-        for ann in color:
-            if ann in self.adata.obs.columns:
-                dict_ann[ann] = self.adata.obs[ann]
-            elif ann in self.adata.var_names:
-                dict_ann[ann] = self.adata.obs_vector(ann)
-            else:
-                raise ValueError(f"could not find '{ann}' in `self.adata.obs.columns` and `self.adata.var_names`")
-
-        # Add positions of nodes and cells on the flat tree
-        self.add_flat_tree_node_pos()
-        flat_tree = self.adata.uns['flat_tree']
-        self.add_flat_tree_cell_pos(dist_scale)
-
-        # Retrieve node positions and cell positions
-        ft_node_pos = nx.get_node_attributes(flat_tree, 'pos_spring')
-        ft_node_label = nx.get_node_attributes(flat_tree, 'label')
-        df_plot = pd.DataFrame(index = self.adata.obs.index, data = self.adata.obsm['X_spring'],
-                               columns = ['FlatTree1', 'FlatTree2'])
-
-        # Add annotation data to the plot DataFrame
-        for ann in color:
-            df_plot[ann] = dict_ann[ann]
-
-        df_plot_shuf = df_plot.sample(frac = 1, random_state = 100)  # Shuffle for better plotting
-
-        # Handle legend ordering for categorical variables
-        legend_order = {ann: np.unique(df_plot_shuf[ann]) for ann in color if is_string_dtype(df_plot_shuf[ann])}
-        if fig_legend_order is not None:
-            if not isinstance(fig_legend_order, dict):
-                raise TypeError("`fig_legend_order` must be a dictionary")
-            for ann in fig_legend_order.keys():
-                if ann in legend_order.keys():
-                    legend_order[ann] = fig_legend_order[ann]
-                else:
-                    print(f"'{ann}' is ignored for ordering legend labels due to incorrect name or data type")
-
-        # Set up the figure layout
-        fig_ncol = min(fig_ncol, len(color))
-        fig_nrow = int(np.ceil(len(color) / fig_ncol))
-        fig = plt.figure(figsize = (fig_size[0] * fig_ncol * 1.05, fig_size[1] * fig_nrow))
-
-        # Plot for each annotation
-        for i, ann in enumerate(color):
-            ax_i = fig.add_subplot(fig_nrow, fig_ncol, i + 1)
-
-            if is_string_dtype(df_plot[ann]):
-                # Categorical variable: apply a color palette
-                color_map = self.adata.uns.get(ann + '_color', None)
-                sc_i = sns.scatterplot(ax = ax_i,
-                                       x = 'FlatTree1', y = 'FlatTree2',
-                                       hue = ann, hue_order = legend_order[ann],
-                                       data = df_plot_shuf, alpha = alpha, linewidth = 0,
-                                       palette = self.adata.uns['pheno_leiden_colors'])
-
-                legend_handles, legend_labels = ax_i.get_legend_handles_labels()
-                ax_i.legend(handles = legend_handles, labels = legend_labels,
-                            bbox_to_anchor = (1, 0.5), loc = 'center left', ncol = fig_legend_ncol,
-                            frameon = False)
-
-                # Save color mapping to self.adata.uns if not already present
-                if ann + '_color' not in self.adata.uns:
-                    colors_sns = sc_i.get_children()[0].get_facecolors()
-                    colors_sns_scaled = (255 * colors_sns).astype(int)
-                    self.adata.uns[ann + '_color'] = {
-                        df_plot_shuf[ann].iloc[
-                            i]: f'#{colors_sns_scaled[i][0]:02x}{colors_sns_scaled[i][1]:02x}{colors_sns_scaled[i][2]:02x}'
-                        for i in np.unique(df_plot_shuf[ann], return_index = True)[1]
-                    }
-
-            else:
-                # Continuous variable: use a colormap
-                if not pd.api.types.is_numeric_dtype(df_plot[ann]):
-                    raise ValueError(f"The variable '{ann}' must be numeric for continuous color mapping.")
-                vmin_i = df_plot[ann].min() if vmin is None else vmin
-                vmax_i = df_plot[ann].max() if vmax is None else vmax
-                sc_i = ax_i.scatter(df_plot_shuf['FlatTree1'], df_plot_shuf['FlatTree2'],
-                                    c = df_plot_shuf[ann], vmin = vmin_i, vmax = vmax_i, alpha = alpha)
-                cbar = plt.colorbar(sc_i, ax = ax_i, pad = 0.01, fraction = 0.05, aspect = 40)
-                cbar.solids.set_edgecolor("face")
-                cbar.ax.locator_params(nbins = 5)
-
-            # Optionally plot the graph structure (edges)
-            if show_graph:
-                for edge_i in flat_tree.edges():
-                    branch_i_pos = np.array([ft_node_pos[i] for i in edge_i])
-                    ax_i.plot(branch_i_pos[:, 0], branch_i_pos[:, 1], c = 'black', alpha = 0.8)
-
-            # Optionally show node labels
-            if show_text:
-                for node_i in flat_tree.nodes():
-                    ax_i.text(ft_node_pos[node_i][0], ft_node_pos[node_i][1], ft_node_label[node_i],
-                              color = 'black', fontsize = 0.9 * mpl.rcParams['font.size'],
-                              ha = 'left', va = 'bottom')
-
-            # Set axis labels and layout adjustments
-            ax_i.set_xlabel("FlatTree1", labelpad = 2)
-            ax_i.set_ylabel("FlatTree2", labelpad = 0)
-            ax_i.locator_params(axis = 'x', nbins = 5)
-            ax_i.locator_params(axis = 'y', nbins = 5)
-            ax_i.tick_params(axis = "x", pad = -1)
-            ax_i.tick_params(axis = "y", pad = -3)
-            ax_i.set_title(ann)
-
-        # Tight layout for the whole figure
-        plt.tight_layout(pad = pad, h_pad = h_pad, w_pad = w_pad)
-
-        # Save the figure if requested
-        if save_fig:
-            plt.savefig(os.path.join(fig_path, fig_name), pad_inches = 1, bbox_inches = 'tight')
-            plt.close(fig)
 
     def add_flat_tree_node_pos(self):
         flat_tree = self.adata.uns['flat_tree']
@@ -885,161 +760,6 @@ class StreamTrajectory:
             annots[loc_str] = ax.arrow(x, y, dx, dy, fc = 'k', ec = 'k', width = lw,
                                        head_width = head_width, head_length = head_length, **arrow_kwargs)
         return annots
-
-    def plot_stream(self,root='S0', color=None, preference=None, dist_scale=0.9,
-                    factor_num_win=10, factor_min_win=2.0, factor_width=2.5, factor_nrow=200, factor_ncol=400,
-                    log_scale=False, factor_zoomin=100.0,
-                    fig_size=(7, 4.5), fig_legend_order=None, fig_legend_ncol=1,
-                    fig_colorbar_aspect=30,
-                    vmin=None, vmax=None,
-                    pad=1.08, w_pad=None, h_pad=None,
-                    save_fig=False, fig_path=None, fig_format='pdf'):
-        if (fig_path is None):
-            fig_path = self.output_folder
-        fig_size = mpl.rcParams['figure.figsize'] if fig_size is None else fig_size
-
-        if (color is None):
-            color = ['label']
-        ###remove duplicate keys
-        color = list(dict.fromkeys(color))
-
-        dict_ann = dict()
-        for ann in color:
-            if (ann in self.adata.obs.columns):
-                dict_ann[ann] = self.adata.obs[ann]
-            elif (ann in self.adata.var_names):
-                dict_ann[ann] = self.adata.obs_vector(ann)
-            else:
-                raise ValueError("could not find '%s' in `self.adata.obs.columns` and `self.adata.var_names`" % (ann))
-
-        flat_tree = self.adata.uns['flat_tree']
-        ft_node_label = nx.get_node_attributes(flat_tree, 'label')
-        label_to_node = {value: key for key, value in nx.get_node_attributes(flat_tree, 'label').items()}
-        if (root not in label_to_node.keys()):
-            raise ValueError("There is no root '%s'" % root)
-
-        if (preference != None):
-            preference_nodes = [label_to_node[x] for x in preference]
-        else:
-            preference_nodes = None
-
-        legend_order = {ann: np.unique(dict_ann[ann]) for ann in color if is_string_dtype(dict_ann[ann])}
-        if (fig_legend_order is not None):
-            if (not isinstance(fig_legend_order, dict)):
-                raise TypeError("`fig_legend_order` must be a dictionary")
-            for ann in fig_legend_order.keys():
-                if (ann in legend_order.keys()):
-                    legend_order[ann] = fig_legend_order[ann]
-                else:
-                    print("'%s' is ignored for ordering legend labels due to incorrect name or data type" % ann)
-
-        dict_plot = dict()
-
-        list_string_type = [k for k, v in dict_ann.items() if is_string_dtype(v)]
-        if (len(list_string_type) > 0):
-            dict_verts, dict_extent = \
-                self.cal_stream_polygon_string(dict_ann, root = root, preference = preference,
-                                               dist_scale = dist_scale,
-                                               factor_num_win = factor_num_win, factor_min_win = factor_min_win,
-                                               factor_width = factor_width,
-                                               log_scale = log_scale, factor_zoomin = factor_zoomin)
-            dict_plot['string'] = [dict_verts, dict_extent]
-
-        list_numeric_type = [k for k, v in dict_ann.items() if is_numeric_dtype(v)]
-        if (len(list_numeric_type) > 0):
-            verts, extent, ann_order, dict_ann_df, dict_im_array = \
-                self.cal_stream_polygon_numeric(dict_ann, root = root, preference = preference,
-                                                dist_scale = dist_scale,
-                                                factor_num_win = factor_num_win, factor_min_win = factor_min_win,
-                                                factor_width = factor_width,
-                                                factor_nrow = factor_nrow, factor_ncol = factor_ncol,
-                                                log_scale = log_scale, factor_zoomin = factor_zoomin)
-            dict_plot['numeric'] = [verts, extent, ann_order, dict_ann_df, dict_im_array]
-
-        for ann in color:
-            if (is_string_dtype(dict_ann[ann])):
-                if (not ((ann + '_color' in self.adata.uns_keys()) and (
-                        set(self.adata.uns[ann + '_color'].keys()) >= set(np.unique(dict_ann[ann]))))):
-                    ### a hacky way to generate colors from seaborn
-                    tmp = pd.DataFrame(index = self.adata.obs_names,
-                                       data = np.random.rand(self.adata.shape[0], 2))
-                    tmp[ann] = dict_ann[ann]
-                    fig = plt.figure(figsize = fig_size)
-                    sc_i = sns.scatterplot(x = 0, y = 1, hue = ann, data = tmp,
-                                           linewidth = 0,palette=self.adata.uns['pheno_leiden_colors'])
-                    colors_sns = sc_i.get_children()[0].get_facecolors()
-                    plt.close(fig)
-                    colors_sns_scaled = (255 * colors_sns).astype(int)
-                    self.adata.uns[ann + '_color'] = {tmp[ann][i]: '#%02x%02x%02x' % (
-                        colors_sns_scaled[i][0], colors_sns_scaled[i][1], colors_sns_scaled[i][2])
-                                                 for i in np.unique(tmp[ann], return_index = True)[1]}
-                dict_palette = self.adata.uns[ann + '_color']
-
-                verts = dict_plot['string'][0][ann]
-                extent = dict_plot['string'][1][ann]
-                xmin = extent['xmin']
-                xmax = extent['xmax']
-                ymin = extent['ymin'] - (extent['ymax'] - extent['ymin']) * 0.1
-                ymax = extent['ymax'] + (extent['ymax'] - extent['ymin']) * 0.1
-
-                fig = plt.figure(figsize = fig_size)
-                ax = fig.add_subplot(1, 1, 1)
-                legend_labels = []
-                for ann_i in legend_order[ann]:
-                    legend_labels.append(ann_i)
-                    verts_cell = verts[ann_i]
-                    polygon = Polygon(verts_cell, closed = True, color = dict_palette[ann_i], alpha = 0.8, lw = 0)
-                    ax.add_patch(polygon)
-                ax.legend(legend_labels, bbox_to_anchor = (1.03, 0.5), loc = 'center left', ncol = fig_legend_ncol,
-                          frameon = False,
-                          columnspacing = 0.4,
-                          borderaxespad = 0.2,
-                          handletextpad = 0.3, )
-            else:
-                verts = dict_plot['numeric'][0]
-                extent = dict_plot['numeric'][1]
-                ann_order = dict_plot['numeric'][2]
-                dict_ann_df = dict_plot['numeric'][3]
-                dict_im_array = dict_plot['numeric'][4]
-                xmin = extent['xmin']
-                xmax = extent['xmax']
-                ymin = extent['ymin'] - (extent['ymax'] - extent['ymin']) * 0.1
-                ymax = extent['ymax'] + (extent['ymax'] - extent['ymin']) * 0.1
-
-                # clip parts according to determined polygon
-                fig = plt.figure(figsize = fig_size)
-                ax = fig.add_subplot(1, 1, 1)
-                for ann_i in ann_order:
-                    vmin_i = dict_ann_df[ann].loc[ann_i, :].min() if vmin is None else vmin
-                    vmax_i = dict_ann_df[ann].loc[ann_i, :].max() if vmax is None else vmax
-                    im = ax.imshow(dict_im_array[ann][ann_i], interpolation = 'bicubic',
-                                   extent = [xmin, xmax, ymin, ymax], vmin = vmin_i, vmax = vmax_i, aspect = 'auto')
-                    verts_cell = verts[ann_i]
-                    clip_path = Polygon(verts_cell, facecolor = 'none', edgecolor = 'none', closed = True)
-                    ax.add_patch(clip_path)
-                    im.set_clip_path(clip_path)
-                    cbar = plt.colorbar(im, ax = ax, pad = 0.04, fraction = 0.02, aspect = fig_colorbar_aspect)
-                    cbar.ax.locator_params(nbins = 5)
-            ax.set_xlim(xmin, xmax)
-            ax.set_ylim(ymin, ymax)
-            ax.set_xlabel("pseudotime", labelpad = 2)
-            ax.spines['left'].set_visible(False)
-            ax.spines['right'].set_visible(False)
-            ax.spines['top'].set_visible(False)
-            ax.get_yaxis().set_visible(False)
-            ax.locator_params(axis = 'x', nbins = 8)
-            ax.tick_params(axis = "x", pad = -1)
-            annots = self.arrowed_spines(ax, locations = ('bottom right',),
-                                         lw = ax.spines['bottom'].get_linewidth() * 1e-5)
-            ax.set_title(ann)
-            plt.tight_layout(pad = pad, h_pad = h_pad, w_pad = w_pad)
-            if (save_fig):
-                file_path_S = os.path.join(fig_path, root)
-                if (not os.path.exists(file_path_S)):
-                    os.makedirs(file_path_S)
-                plt.savefig(os.path.join(file_path_S, 'stream_' + self.slugify(ann) + '.' + fig_format), pad_inches = 1,
-                            bbox_inches = 'tight')
-                plt.close(fig)
 
     def cal_stream_polygon_string(self, dict_ann, root='S0', preference=None, dist_scale=0.9,
                                   factor_num_win=10, factor_min_win=2.0, factor_width=2.5,
@@ -2522,17 +2242,429 @@ class StreamTrajectory:
 
 # === Plotting Methods ===
 
-    def plot_stream_sc(self,root='S0', color=None, dist_scale=1, dist_pctl=95, preference=None,
-                       fig_size=(7, 4.5), fig_legend_ncol=1, fig_legend_order=None,
-                       vmin=None, vmax=None, alpha=0.8,
+    def plot_stream_all(self):
+            plot_stream_folder = os.path.join(self.Trajectory_folder, "plot_stream")
+            if not os.path.exists(plot_stream_folder):
+                os.makedirs(plot_stream_folder)
+
+            all_roots = list(set(nx.get_node_attributes(self.adata.uns['flat_tree'],
+                                                        'label').values()))
+            for _ in range(len(all_roots)):
+                root = all_roots[_]
+                plot_root_folder = os.path.join(plot_stream_folder, root)
+                if not os.path.exists(plot_root_folder):
+                    os.makedirs(plot_root_folder)
+                if self.typeclustering == "Phenograph":
+                    self.adata.obs['Phenograph_cluster'] = self.adata.obs['Phenograph_cluster'].astype('str')
+                    self.plot_stream(root = root, color = ['Phenograph_cluster'],
+                                        fig_path = plot_root_folder,
+                                        fig_name = f"{self.analysis_name}_{'S' + root[-1] + '_Phenograph_cluster'}.pdf")
+                elif self.typeclustering == "VIA":
+                    self.adata.obs['VIA_cluster'] = self.adata.obs['VIA_cluster'].astype('str')
+                    self.plot_stream(root = root, color = ['VIA_cluster'],
+                                        fig_path = plot_root_folder,
+                                        fig_name = f"{self.analysis_name}_{'S' + root[-1] + '_VIA_cluster'}.pdf")
+                elif self.typeclustering == "FlowSOM":
+                    self.adata.obs['MetaCluster_Flowsom'] = self.adata.obs['MetaCluster_Flowsom'].astype('str')
+                    self.plot_stream(root = root, color = ['MetaCluster_Flowsom'],
+                                        fig_path = plot_root_folder,
+                                        fig_name = f"{self.analysis_name}_{'S' + root[-1] + '_FlowSOM_cluster'}.pdf")
+                # Plot pseudotime for the root
+                self.plot_stream(root = root, color = ['S' + root[-1] + '_pseudotime'],
+                                    fig_path = plot_root_folder,
+                                    fig_name = f"{self.analysis_name}_{'S' + root[-1] + '_pseudotime'}.pdf")
+                self.plot_stream(root = root, color = ['S' + root[-1] + '_pseudotime'],
+                                 fig_path = plot_root_folder,
+                                 fig_name = f"{self.analysis_name}_{'S' + root[-1] + '_pseudotime'}.pdf")
+                for feat in ['Cell_type', 'EXP', 'ID', 'Time_point', 'Condition', 'Count']:
+                    if len(self.adata.obs[feat].unique()):
+                        self.plot_stream(root = root, color = [feat],
+                                         fig_path = plot_root_folder,
+                                         fig_name = f"{self.analysis_name}_{root}_{feat}.pdf")
+                for _ in self.adata.var.index:
+                    self.plot_stream(root = root, color = [_],
+                                     fig_path = plot_root_folder,
+                                     fig_name = f"{self.analysis_name}_{'S' + root[-1] + '_'+_}.pdf")
+
+    def plot_flat_tree_all(self):
+        plot_tree_folder = os.path.join(self.Trajectory_folder, "plot_flat_tree")
+        if not os.path.exists(plot_tree_folder):
+            os.makedirs(plot_tree_folder)
+
+        all_roots = list(set(nx.get_node_attributes(self.adata.uns['flat_tree'], 'label').values()))
+
+        for _ in range(len(all_roots)):
+            root = all_roots[_]
+            plot_root_folder = os.path.join(plot_tree_folder, root)
+            if not os.path.exists(plot_root_folder):
+                os.makedirs(plot_root_folder)
+            if self.typeclustering == "Phenograph":
+                self.adata.obs['Phenograph_cluster'] = self.adata.obs['Phenograph_cluster'].astype('str')
+                self.plot_flat_tree(root = root, color = ['Phenograph_cluster'],
+                                    fig_path = plot_root_folder,
+                                    fig_name = f"{self.analysis_name}_{'S' + root[-1] + '_Phenograph_cluster'}.pdf")
+            elif self.typeclustering == "VIA":
+                self.adata.obs['VIA_cluster'] = self.adata.obs['VIA_cluster'].astype('str')
+                self.plot_flat_tree(root = root, color = ['VIA_cluster'],
+                                    fig_path = plot_root_folder,
+                                    fig_name = f"{self.analysis_name}_{'S' + root[-1] + '_VIA_cluster'}.pdf")
+            elif self.typeclustering == "FlowSOM":
+                self.adata.obs['MetaCluster_Flowsom'] = self.adata.obs['MetaCluster_Flowsom'].astype('str')
+                self.plot_flat_tree(root = root, color = ['MetaCluster_Flowsom'],
+                                    fig_path = plot_root_folder,
+                                    fig_name = f"{self.analysis_name}_{'S' + root[-1] + '_FlowSOM_cluster'}.pdf")
+            # Plot pseudotime for the root
+            self.plot_flat_tree(root = root, color = ['S' + root[-1] + '_pseudotime'],
+                                fig_path = plot_root_folder,
+                                fig_name = f"{self.analysis_name}_{'S' + root[-1] + '_pseudotime'}.pdf")
+
+            # Plot for 'Cell_type', 'EXP', 'ID', 'Time_point', 'Condition', 'Count' in obs
+            for feat in ['Cell_type', 'EXP', 'ID', 'Time_point', 'Condition', 'Count']:
+                if len(self.adata.obs[feat].unique()) > 1:
+                    self.plot_flat_tree(root = root, color = [feat],
+                                        fig_path = plot_root_folder,
+                                        fig_name = f"{self.analysis_name}_{root}_{feat}.pdf")
+
+            # Plot for each gene in var
+        plot_tree_gene_folder = os.path.join(plot_tree_folder, "plot_flat_tree_markers")
+        if not os.path.exists(plot_tree_gene_folder):
+            os.makedirs(plot_tree_gene_folder)
+        for gene in self.adata.var.index:
+            self.plot_flat_tree(root = root, color = [gene],
+                                    fig_path = plot_tree_gene_folder,
+                                    fig_name = f"{self.analysis_name}_{gene}.pdf")
+
+
+    def plot_stream(self, root='S0', color=None, preference=None, dist_scale=0.5,
+                    factor_num_win=10, factor_min_win=2.0, factor_width=2.5, factor_nrow=200, factor_ncol=400,
+                    log_scale=False, factor_zoomin=100.0,
+                    fig_legend_order=None, fig_legend_ncol=1,
+                    fig_colorbar_aspect=30,
+                    vmin=None, vmax=None, fig_path=None, fig_name=None,
+                    pad=1.08, w_pad=None, h_pad=None):
+        # Set default fig_path to output_folder if not provided
+        if fig_path is None:
+            fig_path = self.output_folder
+
+        fig_size = self.figsize
+
+        if color is None:
+            color = ['label']
+        ### Remove duplicate keys
+        color = list(dict.fromkeys(color))
+
+        dict_ann = dict()
+        use_turbo = False  # To track if we should use the 'turbo' colormap
+        for ann in color:
+            if ann in self.adata.obs.columns:
+                dict_ann[ann] = self.adata.obs[ann]
+            elif ann in self.adata.var_names:
+                dict_ann[ann] = self.adata.obs_vector(ann)
+                use_turbo = True  # Set turbo color map for genes from self.adata.var
+            else:
+                raise ValueError(f"Could not find '{ann}' in `self.adata.obs.columns` or `self.adata.var_names`")
+
+        flat_tree = self.adata.uns['flat_tree']
+        ft_node_label = nx.get_node_attributes(flat_tree, 'label')
+        label_to_node = {value: key for key, value in nx.get_node_attributes(flat_tree, 'label').items()}
+        if root not in label_to_node:
+            raise ValueError(f"There is no root '{root}'")
+
+        preference_nodes = [label_to_node[x] for x in preference] if preference else None
+
+        # Handle legend order
+        legend_order = {ann: np.unique(dict_ann[ann]) for ann in color if is_string_dtype(dict_ann[ann])}
+        if fig_legend_order is not None:
+            if not isinstance(fig_legend_order, dict):
+                raise TypeError("`fig_legend_order` must be a dictionary")
+            for ann in fig_legend_order:
+                if ann in legend_order:
+                    legend_order[ann] = fig_legend_order[ann]
+                else:
+                    print(f"'{ann}' is ignored for ordering legend labels due to incorrect name or data type")
+
+        dict_plot = dict()
+
+        # For categorical data
+        list_string_type = [k for k, v in dict_ann.items() if is_string_dtype(v)]
+        if len(list_string_type) > 0:
+            dict_verts, dict_extent = self.cal_stream_polygon_string(dict_ann, root = root, preference = preference_nodes,
+                                                                     dist_scale = dist_scale,
+                                                                     factor_num_win = factor_num_win,
+                                                                     factor_min_win = factor_min_win,
+                                                                     factor_width = factor_width, log_scale = log_scale,
+                                                                     factor_zoomin = factor_zoomin)
+            dict_plot['string'] = [dict_verts, dict_extent]
+
+        # For numeric data
+        list_numeric_type = [k for k, v in dict_ann.items() if is_numeric_dtype(v)]
+        if len(list_numeric_type) > 0:
+            verts, extent, ann_order, dict_ann_df, dict_im_array = self.cal_stream_polygon_numeric(dict_ann, root = root,
+                                                                                                   preference = preference_nodes,
+                                                                                                   dist_scale = dist_scale,
+                                                                                                   factor_num_win = factor_num_win,
+                                                                                                   factor_min_win = factor_min_win,
+                                                                                                   factor_width = factor_width,
+                                                                                                   factor_nrow = factor_nrow,
+                                                                                                   factor_ncol = factor_ncol,
+                                                                                                   log_scale = log_scale,
+                                                                                                   factor_zoomin = factor_zoomin)
+            dict_plot['numeric'] = [verts, extent, ann_order, dict_ann_df, dict_im_array]
+
+        # Start plotting
+        for ann in color:
+            if is_string_dtype(dict_ann[ann]):
+                # Handle color mapping for categorical variables
+                unique_vals = np.unique(dict_ann[ann])
+                num_categories = len(unique_vals)
+
+                # Choose the right palette
+                if num_categories <= 28:
+                    dict_palette = self.palette28[:num_categories]  # Use palette28 if 28 or fewer categories
+                else:
+                    dict_palette = self.palette102[:num_categories]  # Use palette102 if more than 28 categories
+                # Create color mapping
+                color_mapping = {str(val): dict_palette[i] for i, val in enumerate(unique_vals)}
+                verts = dict_plot['string'][0][ann]
+                extent = dict_plot['string'][1][ann]
+                xmin = extent['xmin']
+                xmax = extent['xmax']
+                ymin = extent['ymin'] - (extent['ymax'] - extent['ymin']) * 0.1
+                ymax = extent['ymax'] + (extent['ymax'] - extent['ymin']) * 0.1
+
+                fig, ax = plt.subplots(figsize = fig_size)
+                legend_labels = []
+
+                # Plot each category with the corresponding color
+                for ann_i in unique_vals:
+                    ann_i_str = str(ann_i)
+                    if ann_i_str in color_mapping:
+                        legend_labels.append(ann_i_str)
+                        verts_cell = verts[ann_i]
+                        polygon = Polygon(verts_cell, closed = True, color = color_mapping[ann_i_str], alpha = 0.8, lw = 0)
+                        ax.add_patch(polygon)
+                    else:
+                        print(f"Warning: Color for '{ann_i}' not found in palette. Using default gray color.")
+                        polygon = Polygon(verts_cell, closed = True, color = 'gray', alpha = 0.8, lw = 0)
+                        ax.add_patch(polygon)
+
+                # Add legend
+                ax.legend(legend_labels, bbox_to_anchor = (1.03, 0.5), loc = 'center left', ncol = fig_legend_ncol,
+                          frameon = False, columnspacing = 0.4, borderaxespad = 0.2, handletextpad = 0.3)
+
+            else:
+                # Handle numeric data (continuous)
+                verts = dict_plot['numeric'][0]
+                extent = dict_plot['numeric'][1]
+                ann_order = dict_plot['numeric'][2]
+                dict_ann_df = dict_plot['numeric'][3]
+                dict_im_array = dict_plot['numeric'][4]
+                xmin = extent['xmin']
+                xmax = extent['xmax']
+                ymin = extent['ymin'] - (extent['ymax'] - extent['ymin']) * 0.1
+                ymax = extent['ymax'] + (extent['ymax'] - extent['ymin']) * 0.1
+
+                fig, ax = plt.subplots(figsize = fig_size)
+                cmap = 'turbo' if use_turbo else None  # Use 'turbo' if plotting a gene from self.adata.var
+
+                for ann_i in ann_order:
+                    vmin_i = dict_ann_df[ann].loc[ann_i, :].min() if vmin is None else vmin
+                    vmax_i = dict_ann_df[ann].loc[ann_i, :].max() if vmax is None else vmax
+                    im = ax.imshow(dict_im_array[ann][ann_i], interpolation = 'bicubic',
+                                   extent = [xmin, xmax, ymin, ymax], vmin = vmin_i, vmax = vmax_i, aspect = 'auto',
+                                   cmap = cmap)
+                    verts_cell = verts[ann_i]
+                    clip_path = Polygon(verts_cell, facecolor = 'none', edgecolor = 'none', closed = True)
+                    ax.add_patch(clip_path)
+                    im.set_clip_path(clip_path)
+                    cbar = plt.colorbar(im, ax = ax, pad = 0.04, fraction = 0.02, aspect = fig_colorbar_aspect)
+                    cbar.ax.locator_params(nbins = 5)
+
+                if use_turbo:
+                    ax.set_title(f'{ann} (intensity)', fontsize = 12)
+
+            ax.set_xlim(xmin, xmax)
+            ax.set_ylim(ymin, ymax)
+            ax.set_xlabel("pseudotime", labelpad = 2)
+            ax.spines['left'].set_visible(False)
+            ax.spines['right'].set_visible(False)
+            ax.spines['top'].set_visible(False)
+            ax.get_yaxis().set_visible(False)
+            ax.locator_params(axis = 'x', nbins = 8)
+            ax.tick_params(axis = "x", pad = -1)
+
+            # Set title with root and color
+            ax.set_title(f'Root: {root}, Color: {ann}', fontsize = 14)
+
+            plt.tight_layout(pad = pad, h_pad = h_pad, w_pad = w_pad)
+
+            # Generate fig_name if not provided
+            if fig_name is None:
+                fig_name = f"{root}_{ann}.pdf"
+
+            # Save figure with path
+            file_path_S = os.path.join(fig_path, fig_name)
+            if not os.path.exists(os.path.dirname(file_path_S)):
+                os.makedirs(os.path.dirname(file_path_S))
+            plt.savefig(file_path_S, pad_inches = 1, bbox_inches = 'tight', dpi = 300)
+            plt.close(fig)
+
+    def plot_flat_tree(self, root='S0', color=None, dist_scale=0.5,
+                       fig_legend_order=None, fig_legend_ncol=1, fig_ncol=3,
+                       vmin=None, vmax=None, fig_path=None, fig_name=None,
                        pad=1.08, w_pad=None, h_pad=None,
-                       show_text=True, show_graph=True,
-                       save_fig=False, fig_path=None, fig_format='pdf'):
-        """Plot stream using matplotlib and seaborn."""
+                       alpha=0.8, dot_size=20):  # Added dot_size parameter
+        """Plot flat tree layout with cells colored by a specified annotation."""
 
         if fig_path is None:
             fig_path = self.output_folder
-        fig_size = mpl.rcParams['figure.figsize'] if fig_size is None else fig_size
+
+        fig_size = self.figsize
+
+        if color is None:
+            color = ['label']
+        ### Remove duplicate keys
+        color = list(dict.fromkeys(color))
+
+        dict_ann = dict()
+        use_turbo = False  # To track if we should use the 'turbo' colormap for genes
+        for ann in color:
+            if ann in self.adata.obs.columns:
+                dict_ann[ann] = self.adata.obs[ann]
+            elif ann in self.adata.var_names:
+                dict_ann[ann] = self.adata.obs_vector(ann)
+                use_turbo = True  # Set turbo color map for genes from self.adata.var
+            else:
+                raise ValueError(f"Could not find '{ann}' in `self.adata.obs.columns` or `self.adata.var_names`")
+
+        # Add positions of nodes and cells on the flat tree
+        self.add_flat_tree_node_pos()
+        flat_tree = self.adata.uns['flat_tree']
+        self.add_flat_tree_cell_pos(dist_scale)
+
+        # Retrieve node positions and cell positions
+        ft_node_pos = nx.get_node_attributes(flat_tree, 'pos_spring')
+        ft_node_label = nx.get_node_attributes(flat_tree, 'label')
+        df_plot = pd.DataFrame(index = self.adata.obs.index, data = self.adata.obsm['X_spring'],
+                               columns = ['FlatTree1', 'FlatTree2'])
+
+        # Add annotation data to the plot DataFrame
+        for ann in color:
+            df_plot[ann] = dict_ann[ann]
+
+        df_plot_shuf = df_plot.sample(frac = 1, random_state = 100)  # Shuffle for better plotting
+
+        # Handle legend ordering for categorical variables
+        legend_order = {ann: np.unique(df_plot_shuf[ann]) for ann in color if is_string_dtype(df_plot_shuf[ann])}
+        if fig_legend_order is not None:
+            if not isinstance(fig_legend_order, dict):
+                raise TypeError("`fig_legend_order` must be a dictionary")
+            for ann in fig_legend_order:
+                if ann in legend_order:
+                    legend_order[ann] = fig_legend_order[ann]
+                else:
+                    print(f"'{ann}' is ignored for ordering legend labels due to incorrect name or data type")
+
+        dict_plot = dict()
+
+        # For categorical data
+        list_string_type = [k for k, v in dict_ann.items() if is_string_dtype(v)]
+        if len(list_string_type) > 0:
+            dict_plot['string'] = list_string_type
+
+        # For numeric data
+        list_numeric_type = [k for k, v in dict_ann.items() if is_numeric_dtype(v)]
+        if len(list_numeric_type) > 0:
+            dict_plot['numeric'] = list_numeric_type
+
+        # Set up the figure layout
+        fig_ncol = min(fig_ncol, len(color))  # Ensure fig_ncol is initialized and set correctly
+        fig_nrow = int(np.ceil(len(color) / fig_ncol))
+        fig = plt.figure(figsize = (fig_size[0] * fig_ncol * 1.05, fig_size[1] * fig_nrow))
+
+        # Plot for each annotation
+        for i, ann in enumerate(color):
+            ax_i = fig.add_subplot(fig_nrow, fig_ncol, i + 1)
+
+            if is_string_dtype(df_plot[ann]):
+                # Handle color mapping for categorical variables
+                unique_vals = np.unique(df_plot[ann])
+                num_categories = len(unique_vals)
+
+                # Choose the right palette
+                if num_categories <= 28:
+                    dict_palette = self.palette28[:num_categories]  # Use palette28 if 28 or fewer categories
+                else:
+                    dict_palette = self.palette102[:num_categories]  # Use palette102 if more than 28 categories
+                # Create color mapping
+                color_mapping = {str(val): dict_palette[i] for i, val in enumerate(unique_vals)}
+
+                # Categorical variable: apply a color palette
+                sc_i = sns.scatterplot(ax = ax_i,
+                                       x = 'FlatTree1', y = 'FlatTree2',
+                                       hue = ann, hue_order = legend_order[ann],
+                                       data = df_plot_shuf, alpha = alpha, linewidth = 0,
+                                       palette = color_mapping, s = dot_size)  # Adjust dot size here
+
+                legend_handles, legend_labels = ax_i.get_legend_handles_labels()
+                ax_i.legend(handles = legend_handles, labels = legend_labels,
+                            bbox_to_anchor = (1, 0.5), loc = 'center left', ncol = fig_legend_ncol,
+                            frameon = False)
+
+            else:
+                # Continuous variable: use a colormap
+                vmin_i = df_plot[ann].min() if vmin is None else vmin
+                vmax_i = df_plot[ann].max() if vmax is None else vmax
+                cmap = 'turbo' if use_turbo else None  # Use 'turbo' if plotting a gene from self.adata.var
+
+                sc_i = ax_i.scatter(df_plot_shuf['FlatTree1'], df_plot_shuf['FlatTree2'],
+                                    c = df_plot_shuf[ann], vmin = vmin_i, vmax = vmax_i, alpha = alpha, cmap = cmap,
+                                    s = dot_size)
+                cbar = plt.colorbar(sc_i, ax = ax_i, pad = 0.01, fraction = 0.05, aspect = 40)
+                cbar.solids.set_edgecolor("face")
+                cbar.ax.locator_params(nbins = 5)
+
+            # Optionally plot the graph structure (edges) - now always included
+            for edge_i in flat_tree.edges():
+                branch_i_pos = np.array([ft_node_pos[i] for i in edge_i])
+                ax_i.plot(branch_i_pos[:, 0], branch_i_pos[:, 1], c = 'black', alpha = 0.8)
+
+            # Optionally show node labels
+            for node_i in flat_tree.nodes():
+                ax_i.text(ft_node_pos[node_i][0], ft_node_pos[node_i][1], ft_node_label[node_i],
+                          color = 'black', fontsize = 1 * mpl.rcParams['font.size'],
+                          ha = 'left', va = 'bottom')
+
+            # Set axis labels and layout adjustments
+            ax_i.set_xlabel("FlatTree1", labelpad = 2)
+            ax_i.set_ylabel("FlatTree2", labelpad = 0)
+            ax_i.locator_params(axis = 'x', nbins = 5)
+            ax_i.locator_params(axis = 'y', nbins = 5)
+            ax_i.tick_params(axis = "x", pad = -1)
+            ax_i.tick_params(axis = "y", pad = -3)
+
+            # Set title
+            ax_i.set_title(f'Root: {root}, Color: {ann}', fontsize = 14)
+
+        # Tight layout for the whole figure
+        plt.tight_layout(pad = pad, h_pad = h_pad, w_pad = w_pad)
+
+        # Save the figure
+        if fig_name is None:
+            fig_name = f"{self.analysis_name}_{root}_{color[0]}.pdf"
+        plt.savefig(os.path.join(fig_path, fig_name), pad_inches = 1, bbox_inches = 'tight', dpi = 300)
+        plt.close(fig)
+
+    def plot_stream_sc(self, root='S0', color=None, dist_scale=0.5, dist_pctl=95,
+                       fig_legend_ncol=1, fig_legend_order=None,
+                       vmin=None, vmax=None, alpha=0.8, dot_size=20,fig_name=None,
+                       pad=1.08, w_pad=None, h_pad=None, fig_path=None):
+        """Plot stream using matplotlib and seaborn with palette selection."""
+
+        if fig_path is None:
+            fig_path = self.output_folder
+
+        fig_size = self.figsize
         color = list(dict.fromkeys(color))  # Remove duplicates in color
         dict_ann = dict()
 
@@ -2552,18 +2684,17 @@ class StreamTrajectory:
         if root not in label_to_node.keys():
             raise ValueError(f"There is no root '{root}'")
 
-        self.add_stream_sc_pos(root = root, dist_scale = dist_scale, dist_pctl = dist_pctl,
-                               preference = preference)
+        self.add_stream_sc_pos(root=root, dist_scale=dist_scale, dist_pctl=dist_pctl)
         stream_nodes = self.adata.uns['stream_' + root]['nodes']
         stream_edges = self.adata.uns['stream_' + root]['edges']
-        df_plot = pd.DataFrame(index = self.adata.obs.index, data = self.adata.obsm['X_stream_' + root],
-                               columns = ['pseudotime', 'dist'])
+        df_plot = pd.DataFrame(index=self.adata.obs.index, data=self.adata.obsm['X_stream_' + root],
+                               columns=['pseudotime', 'dist'])
 
         # Add annotations to the dataframe
         for ann in color:
             df_plot[ann] = dict_ann[ann]
 
-        df_plot_shuf = df_plot.sample(frac = 1, random_state = 100)
+        df_plot_shuf = df_plot.sample(frac=1, random_state=100)
 
         # Legend order handling
         legend_order = {ann: np.unique(df_plot_shuf[ann]) for ann in color if is_string_dtype(df_plot_shuf[ann])}
@@ -2578,74 +2709,128 @@ class StreamTrajectory:
 
         # Plot using matplotlib and seaborn
         for i, ann in enumerate(color):
-            fig = plt.figure(figsize = fig_size)
+            fig = plt.figure(figsize=fig_size)
             ax_i = fig.add_subplot(1, 1, 1)
 
             if is_string_dtype(df_plot[ann]):
+                # Handle palette based on the number of categories
+                unique_vals = np.unique(df_plot[ann])
+                num_categories = len(unique_vals)
+
+                # Choose palette based on the number of categories
+                if num_categories <= 28:
+                    palette = self.palette28[:num_categories]  # Use palette28 for 28 or fewer categories
+                else:
+                    palette = self.palette102[:num_categories]  # Use palette102 for more than 28 categories
+
                 # Seaborn scatterplot for categorical data
-                sc_i = sns.scatterplot(ax = ax_i,
-                                       x = 'pseudotime', y = 'dist',
-                                       hue = ann, hue_order = legend_order[ann],
-                                       data = df_plot_shuf,
-                                       alpha = alpha, linewidth = 0,
-                                       palette = self.adata.uns['pheno_leiden_colors'])
+                sc_i = sns.scatterplot(ax=ax_i,
+                                       x='pseudotime', y='dist',
+                                       hue=ann, hue_order=legend_order[ann],
+                                       data=df_plot_shuf,
+                                       alpha=alpha, linewidth=0, s=dot_size,  # Use dot_size for scatterplot size
+                                       palette=palette)
 
                 legend_handles, legend_labels = ax_i.get_legend_handles_labels()
-                ax_i.legend(handles = legend_handles, labels = legend_labels,
-                            bbox_to_anchor = (1, 0.5), loc = 'center left', ncol = fig_legend_ncol, frameon = False)
+                ax_i.legend(handles=legend_handles, labels=legend_labels,
+                            bbox_to_anchor=(1, 0.5), loc='center left', ncol=fig_legend_ncol, frameon=False)
 
                 if ann + '_color' not in self.adata.uns_keys():
                     colors_sns = sc_i.get_children()[0].get_facecolors()
                     colors_sns_scaled = (255 * colors_sns).astype(int)
                     self.adata.uns[ann + '_color'] = {df_plot_shuf[ann][i]: '#%02x%02x%02x' % (
                         colors_sns_scaled[i][0], colors_sns_scaled[i][1], colors_sns_scaled[i][2])
-                                                 for i in np.unique(df_plot_shuf[ann], return_index = True)[1]}
+                        for i in np.unique(df_plot_shuf[ann], return_index=True)[1]}
             else:
                 # Scatterplot for continuous data
                 vmin_i = df_plot[ann].min() if vmin is None else vmin
                 vmax_i = df_plot[ann].max() if vmax is None else vmax
                 sc_i = ax_i.scatter(df_plot_shuf['pseudotime'], df_plot_shuf['dist'],
-                                    c = df_plot_shuf[ann], vmin = vmin_i, vmax = vmax_i, alpha = alpha)
-                cbar = plt.colorbar(sc_i, ax = ax_i, pad = 0.01, fraction = 0.05, aspect = 40)
+                                    c=df_plot_shuf[ann], vmin=vmin_i, vmax=vmax_i, alpha=alpha, s=dot_size)
+                cbar = plt.colorbar(sc_i, ax=ax_i, pad=0.01, fraction=0.05, aspect=40)
                 cbar.solids.set_edgecolor("face")
-                cbar.ax.locator_params(nbins = 5)
+                cbar.ax.locator_params(nbins=5)
 
-            # Plot the graph edges if needed
-            if show_graph:
-                for edge_i in stream_edges.keys():
-                    branch_i_pos = stream_edges[edge_i]
-                    branch_i = pd.DataFrame(branch_i_pos, columns = range(branch_i_pos.shape[1]))
-                    for ii in np.arange(start = 0, stop = branch_i.shape[0], step = 2):
-                        if branch_i.iloc[ii, 0] == branch_i.iloc[ii + 1, 0]:
-                            ax_i.plot(branch_i.iloc[[ii, ii + 1], 0], branch_i.iloc[[ii, ii + 1], 1],
-                                      c = '#767070', alpha = 0.8)
-                        else:
-                            ax_i.plot(branch_i.iloc[[ii, ii + 1], 0], branch_i.iloc[[ii, ii + 1], 1],
-                                      c = 'black', alpha = 1)
+            # Plot the graph edges (always enabled)
+            for edge_i in stream_edges.keys():
+                branch_i_pos = stream_edges[edge_i]
+                branch_i = pd.DataFrame(branch_i_pos, columns=range(branch_i_pos.shape[1]))
+                for ii in np.arange(start=0, stop=branch_i.shape[0], step=2):
+                    if branch_i.iloc[ii, 0] == branch_i.iloc[ii + 1, 0]:
+                        ax_i.plot(branch_i.iloc[[ii, ii + 1], 0], branch_i.iloc[[ii, ii + 1], 1],
+                                  c='#767070', alpha=0.8)
+                    else:
+                        ax_i.plot(branch_i.iloc[[ii, ii + 1], 0], branch_i.iloc[[ii, ii + 1], 1],
+                                  c='black', alpha=1)
 
-            # Display text labels on graph nodes if needed
-            if show_text:
-                for node_i in flat_tree.nodes():
-                    ax_i.text(stream_nodes[node_i][0], stream_nodes[node_i][1], ft_node_label[node_i],
-                              color = 'black', fontsize = 0.9 * mpl.rcParams['font.size'],
-                              ha = 'left', va = 'bottom')
+            # Display text labels on graph nodes (always enabled)
+            for node_i in flat_tree.nodes():
+                ax_i.text(stream_nodes[node_i][0], stream_nodes[node_i][1], ft_node_label[node_i],
+                          color='black', fontsize=0.9 * mpl.rcParams['font.size'],
+                          ha='left', va='bottom')
 
-            ax_i.set_xlabel("pseudotime", labelpad = 2)
+            ax_i.set_xlabel("pseudotime", labelpad=2)
             ax_i.spines['left'].set_visible(False)
             ax_i.spines['right'].set_visible(False)
             ax_i.spines['top'].set_visible(False)
             ax_i.get_yaxis().set_visible(False)
-            ax_i.locator_params(axis = 'x', nbins = 8)
-            ax_i.tick_params(axis = "x", pad = -1)
+            ax_i.locator_params(axis='x', nbins=8)
+            ax_i.tick_params(axis="x", pad=-1)
 
             ax_i.set_title(ann)
-            plt.tight_layout(pad = pad, h_pad = h_pad, w_pad = w_pad)
+            plt.tight_layout(pad=pad, h_pad=h_pad, w_pad=w_pad)
 
-            # Save the figure if needed
-            if save_fig:
-                file_path_S = os.path.join(fig_path, root)
-                if not os.path.exists(file_path_S):
-                    os.makedirs(file_path_S)
-                plt.savefig(os.path.join(file_path_S, 'stream_sc_' + self.slugify(ann) + '.' + fig_format),
-                            pad_inches = 1, bbox_inches = 'tight')
-                plt.close(fig)
+            # Generate fig_name if not provided
+            if fig_name is None:
+                fig_name = f"{root}_{ann}.pdf"
+
+            # Save figure with path
+            file_path_S = os.path.join(fig_path, fig_name)
+            if not os.path.exists(os.path.dirname(file_path_S)):
+                os.makedirs(os.path.dirname(file_path_S))
+            plt.savefig(file_path_S, pad_inches=1, bbox_inches='tight', dpi=300)
+            plt.close(fig)
+
+    def plot_stream_sc_all(self):
+        plot_stream_folder = os.path.join(self.Trajectory_folder, "plot_stream_sc")
+        if not os.path.exists(plot_stream_folder):
+            os.makedirs(plot_stream_folder)
+        all_roots = list(set(nx.get_node_attributes(self.adata.uns['flat_tree'], 'label').values()))
+
+        for _ in range(len(all_roots)):
+            root = all_roots[_]
+            plot_root_folder = os.path.join(plot_stream_folder, root)
+            if not os.path.exists(plot_root_folder):
+                os.makedirs(plot_root_folder)
+            if self.typeclustering == "Phenograph":
+                self.adata.obs['Phenograph_cluster'] = self.adata.obs['Phenograph_cluster'].astype('str')
+                self.plot_stream_sc(root = root, color = ['Phenograph_cluster'],
+                                 fig_path = plot_root_folder,
+                                 fig_name = f"{self.analysis_name}_{'S' + root[-1] + '_Phenograph_cluster'}.pdf")
+            elif self.typeclustering == "VIA":
+                self.adata.obs['VIA_cluster'] = self.adata.obs['VIA_cluster'].astype('str')
+                self.plot_stream_sc(root = root, color = ['VIA_cluster'],
+                                 fig_path = plot_root_folder,
+                                 fig_name = f"{self.analysis_name}_{'S' + root[-1] + '_VIA_cluster'}.pdf")
+            elif self.typeclustering == "FlowSOM":
+                self.adata.obs['MetaCluster_Flowsom'] = self.adata.obs['MetaCluster_Flowsom'].astype('str')
+                self.plot_stream_sc(root = root, color = ['MetaCluster_Flowsom'],
+                                    fig_path = plot_root_folder,
+                                    fig_name = f"{self.analysis_name}_{'S' + root[-1] + '_FlowSOM_cluster'}.pdf")
+            # Plot pseudotime for the root
+            self.plot_stream_sc(root=root, color=['S' + root[-1] + '_pseudotime'],
+                                fig_path=plot_root_folder,
+                                fig_name=f"{self.analysis_name}_{'S' + root[-1] + '_pseudotime'}.pdf")
+
+            # Plot for 'Cell_type', 'EXP', 'ID', 'Time_point', 'Condition', 'Count' in obs
+            for feat in ['Cell_type', 'EXP', 'ID', 'Time_point', 'Condition', 'Count']:
+                if len(self.adata.obs[feat].unique()) > 1:
+                    self.plot_stream_sc(root=root, color=[feat],
+                                        fig_path=plot_root_folder,
+                                        fig_name=f"{self.analysis_name}_{root}_{feat}.pdf")
+
+            # Plot for each gene in var
+            for gene in self.adata.var.index:
+                self.plot_stream_sc(root=root, color=[gene],
+                                    fig_path=plot_root_folder,
+                                    fig_name=f"{self.analysis_name}_{'S' + root[-1] + '_' + gene}.pdf")
