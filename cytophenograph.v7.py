@@ -10,7 +10,7 @@ from ExportingClass import Exporting
 from LogClass import LoggerSetup  # Correct import from ClassLog
 import warnings
 from StreamClass import StreamTrajectory
-
+import traceback
 
 def parse_arguments():
     """
@@ -122,13 +122,12 @@ def main():
             fnull = open(os.devnull, 'w'),
             path_cycombine = os.path.dirname(os.path.realpath(__file__)) + '/cycombine.Rscript',
             markertoinclude = DictInfo["markertoinclude"],
-            marker_array = DictInfo["markertoexclude"],
-            dimensionality_reduction = options.dimensionality_reduction
+            marker_array = DictInfo["markertoexclude"]
         )
 
         # Perform clustering and analysis based on runtime option
         if options.runtime != 'UMAP':
-            DictInfo["clustered_adata"] = clustering.run_clustering()
+            DictInfo["clustered_adata"] = clustering.runclustering()
 
             # Initialize Grouping for organizing data by cluster or sample
             grouping = Grouping(
@@ -149,8 +148,7 @@ def main():
                 output_folder = options.output_folder,
                 tool = options.clustering,
                 runtime = options.runtime,
-                analysis_name = options.analysis_name,
-                dimensionality_reduction = options.dimensionality_reduction
+                analysis_name = options.analysis_name
             )
             visualization.generation_concatenate()
             visualization.plot_umap()
@@ -174,21 +172,28 @@ def main():
 
             # Run exporting method to save results
             exporting.exporting()
-
             # Perform trajectory analysis if the user has requested it
             if options.trajectory_analysis:
                 logger.info("Performing trajectory analysis...")
                 trajectory = StreamTrajectory(
                     adata=DictInfo["clustered_adata"],
                     output_folder=options.output_folder,
-                    dimensionality_reduction=options.dimensionality_reduction
+                    tool = 'Phenograph',
+                    runtime = options.runtime,
+                    analysis_name = options.analysis_name,
+                    thread = options.thread
                 )
                 trajectory.elastic_principal_graph()
+                trajectory.elastic_principal_graph()
+                trajectory.plot_stream_sc_all()
+                trajectory.plot_flat_tree_all()
+                trajectory.plot_stream_all()
 
         elif options.runtime == 'UMAP':
             logger.info("Running UMAP specific operations...")
 
     except Exception as e:
+        print(traceback.format_exc())
         # Capture and log any exceptions that occur during execution
         logger.error(f"Execution Error: {str(e)}")
         sys.exit(1)  # Exit the program with an error code
