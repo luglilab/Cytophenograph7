@@ -31,7 +31,7 @@ class StreamTrajectory:
 # === StreamTrajectory Class ===
 
     # === Initialization and Setup Methods ===
-    def __init__(self, adata, output_folder, tool, runtime,analysis_name,thread):
+    def __init__(self, adata, output_folder, tool, runtime,analysis_name):
         """
         Initialize the StreamTrajectory class.
 
@@ -51,8 +51,6 @@ class StreamTrajectory:
         self.palette28 = palette28
         self.palette102 = palette102
         self.epg_nodes_pos = None
-        self.thread
-
 
 
 # === Output Folder Management ===
@@ -234,25 +232,22 @@ class StreamTrajectory:
             tmp = pd.DataFrame(embedding)
             tmp['cluster'] = clusters
             init_nodes_pos = tmp.groupby('cluster').mean().values
-            init_nodes_pos = init_nodes_pos[:, :2]
             self.epg_nodes_pos = init_nodes_pos
         elif self.typeclustering == 'FlowSOM':
             embedding = self.adata.obsm['X_umap']
-            clusters = np.array(self.adata.obs['MetaCluster_Flowsom'])
+            clusters = np.array(self.adata.obs['MetaCluster_Flowsom'].unique())
             # Calculate the centroids for each cluster
             tmp = pd.DataFrame(embedding)
-            tmp['cluster'] = clusters
+            tmp.index = clusters.index
             init_nodes_pos = tmp.groupby(clusters).mean().values
-            init_nodes_pos = init_nodes_pos[:, :2]
             self.epg_nodes_pos = init_nodes_pos
         elif self.typeclustering == 'VIA':
             embedding = self.adata.obsm['X_umap']
-            clusters = np.array(self.adata.obs['VIA_cluster'].unique())  ###
+            clusters = np.array(self.adata.obs['MetaCluster_Flowsom'].unique())  ###
             # Calculate the centroids for each cluster
             tmp = pd.DataFrame(embedding)
-            tmp['cluster'] = clusters
+            tmp.index = clusters.index
             init_nodes_pos = tmp.groupby(clusters).mean().values
-            init_nodes_pos = init_nodes_pos[:, :2]
             self.epg_nodes_pos = init_nodes_pos
         else:
             print("Error typeclustering is wrong")
@@ -423,7 +418,7 @@ class StreamTrajectory:
                                 epg_alpha=0.01, epg_mu=0.05, epg_lambda=0.05,
                                 epg_trimmingradius=float('inf'),  # Ensure infinity is correctly represented
                                 epg_finalenergy='Penalized',
-                                epg_beta=0.0, epg_n_processes=self.thread,
+                                epg_beta=0.0, epg_n_processes=1,
                                 save_fig=False, fig_name='ElPiGraph_analysis.pdf', fig_path=None, fig_size=(8, 8)):
         if fig_path is None:
             fig_path = self.output_folder

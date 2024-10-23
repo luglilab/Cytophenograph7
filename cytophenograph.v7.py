@@ -180,14 +180,9 @@ def main():
                     output_folder=options.output_folder,
                     tool = 'Phenograph',
                     runtime = options.runtime,
-                    analysis_name = options.analysis_name,
-                    thread = options.thread
+                    analysis_name = options.analysis_name
                 )
                 trajectory.elastic_principal_graph()
-                trajectory.elastic_principal_graph()
-                trajectory.plot_stream_sc_all()
-                trajectory.plot_flat_tree_all()
-                trajectory.plot_stream_all()
 
         elif options.runtime == 'UMAP':
             logger.info("Running UMAP specific operations...")
