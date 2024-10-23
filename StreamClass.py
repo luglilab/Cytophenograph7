@@ -31,7 +31,7 @@ class StreamTrajectory:
 # === StreamTrajectory Class ===
 
     # === Initialization and Setup Methods ===
-    def __init__(self, adata, output_folder, tool, runtime,analysis_name):
+    def __init__(self, adata, output_folder, dimensionality_reduction, tool, runtime,analysis_name):
         """
         Initialize the StreamTrajectory class.
 
@@ -42,6 +42,7 @@ class StreamTrajectory:
         """
         self.adata = adata
         self.output_folder = output_folder
+        self.dimensionality_reduction = dimensionality_reduction
         self.typeclustering = tool
         self.Trajectory_folder = "/".join([self.output_folder, "Trajectory"])
         self.createdir(self.Trajectory_folder )
@@ -119,7 +120,7 @@ class StreamTrajectory:
         fig_size = mpl.rcParams['figure.figsize'] if fig_size is None else fig_size
 
         if n_components is None:
-            n_components = min(3, self.adata.obsm['X_umap'].shape[1])
+            n_components = min(3, self.adata.obsm[self.dimensionality_reduction].shape[1])
 
         if n_components not in [2, 3]:
             raise ValueError("n_components should be 2 or 3")
@@ -232,22 +233,26 @@ class StreamTrajectory:
             tmp = pd.DataFrame(embedding)
             tmp['cluster'] = clusters
             init_nodes_pos = tmp.groupby('cluster').mean().values
+            init_nodes_pos = init_nodes_pos[:, :2]
             self.epg_nodes_pos = init_nodes_pos
         elif self.typeclustering == 'FlowSOM':
+            #del self.adata.obs['Cluster_Flowsom']
             embedding = self.adata.obsm['X_umap']
-            clusters = np.array(self.adata.obs['MetaCluster_Flowsom'].unique())
+            clusters = np.array(self.adata.obs['MetaCluster_Flowsom'])
             # Calculate the centroids for each cluster
             tmp = pd.DataFrame(embedding)
-            tmp.index = clusters.index
+            tmp['cluster'] = clusters
             init_nodes_pos = tmp.groupby(clusters).mean().values
+            init_nodes_pos = init_nodes_pos[:, :2]
             self.epg_nodes_pos = init_nodes_pos
         elif self.typeclustering == 'VIA':
             embedding = self.adata.obsm['X_umap']
-            clusters = np.array(self.adata.obs['MetaCluster_Flowsom'].unique())  ###
+            clusters = np.array(self.adata.obs['VIA_cluster'])
             # Calculate the centroids for each cluster
             tmp = pd.DataFrame(embedding)
-            tmp.index = clusters.index
+            tmp['cluster'] = clusters
             init_nodes_pos = tmp.groupby(clusters).mean().values
+            init_nodes_pos = init_nodes_pos[:, :2]
             self.epg_nodes_pos = init_nodes_pos
         else:
             print("Error typeclustering is wrong")
@@ -438,7 +443,7 @@ class StreamTrajectory:
             init_nodes_pos = None
             init_edges = None
 
-        input_data = self.adata.obsm['X_umap']
+        input_data = self.adata.obsm[self.dimensionality_reduction]
         print('Learning elastic principal graph...')
         pg_obj = elpigraph.computeElasticPrincipalTree(input_data, NumNodes = epg_n_nodes,
                                                        Lambda = epg_lambda, Mu = epg_mu,
