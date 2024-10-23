@@ -31,7 +31,7 @@ class StreamTrajectory:
 # === StreamTrajectory Class ===
 
     # === Initialization and Setup Methods ===
-    def __init__(self, adata, output_folder, dimensionality_reduction, tool, runtime,analysis_name):
+    def __init__(self, adata, output_folder, tool, runtime,analysis_name):
         """
         Initialize the StreamTrajectory class.
 
@@ -42,7 +42,6 @@ class StreamTrajectory:
         """
         self.adata = adata
         self.output_folder = output_folder
-        self.dimensionality_reduction = dimensionality_reduction
         self.typeclustering = tool
         self.Trajectory_folder = "/".join([self.output_folder, "Trajectory"])
         self.createdir(self.Trajectory_folder )
@@ -52,6 +51,7 @@ class StreamTrajectory:
         self.palette28 = palette28
         self.palette102 = palette102
         self.epg_nodes_pos = None
+        self.dimensionality_reduction= "X_umap"
 
 
 # === Output Folder Management ===
@@ -224,39 +224,19 @@ class StreamTrajectory:
         """Seeding the initial elastic principal graph."""
 
         print('Seeding initial elastic principal graph...')
+        print(self.adata)
+        print(self.adata.obs)
+        print(self.adata.var)
         input_data = self.adata.obsm[emb]
         if nb_pct is not None:
             n_neighbors = int(np.around(input_data.shape[0] * nb_pct))
-        if self.typeclustering == 'Phenograph':
-            embedding = self.adata.obsm['X_umap']
-            clusters = np.array(self.adata.obs['Phenograph_cluster'])
-            tmp = pd.DataFrame(embedding)
-            tmp['cluster'] = clusters
-            init_nodes_pos = tmp.groupby('cluster').mean().values
-            init_nodes_pos = init_nodes_pos[:, :2]
-            self.epg_nodes_pos = init_nodes_pos
-        elif self.typeclustering == 'FlowSOM':
-            #del self.adata.obs['Cluster_Flowsom']
-            embedding = self.adata.obsm['X_umap']
-            clusters = np.array(self.adata.obs['MetaCluster_Flowsom'])
-            # Calculate the centroids for each cluster
-            tmp = pd.DataFrame(embedding)
-            tmp['cluster'] = clusters
-            init_nodes_pos = tmp.groupby(clusters).mean().values
-            init_nodes_pos = init_nodes_pos[:, :2]
-            self.epg_nodes_pos = init_nodes_pos
-        elif self.typeclustering == 'VIA':
-            embedding = self.adata.obsm['X_umap']
-            clusters = np.array(self.adata.obs['VIA_cluster'])
-            # Calculate the centroids for each cluster
-            tmp = pd.DataFrame(embedding)
-            tmp['cluster'] = clusters
-            init_nodes_pos = tmp.groupby(clusters).mean().values
-            init_nodes_pos = init_nodes_pos[:, :2]
-            self.epg_nodes_pos = init_nodes_pos
-        else:
-            print("Error typeclustering is wrong")
-
+        embedding = self.adata.obsm['X_umap']
+        clusters = np.array(self.adata.obs['pheno_leiden'])
+        tmp = pd.DataFrame(embedding)
+        tmp['cluster'] = clusters
+        init_nodes_pos = tmp.groupby('cluster').mean().values
+        init_nodes_pos = init_nodes_pos[:, :2]
+        self.epg_nodes_pos = init_nodes_pos
         print('The number of initial nodes is ' + str(self.epg_nodes_pos.shape[0]))
         if init_edges is None:
             # Minimum Spanning Tree
@@ -2243,25 +2223,11 @@ class StreamTrajectory:
                 plot_root_folder = os.path.join(plot_stream_folder, root)
                 if not os.path.exists(plot_root_folder):
                     os.makedirs(plot_root_folder)
-                if self.typeclustering == "Phenograph":
-                    self.adata.obs['Phenograph_cluster'] = self.adata.obs['Phenograph_cluster'].astype('str')
-                    self.plot_stream(root = root, color = ['Phenograph_cluster'],
-                                        fig_path = plot_root_folder,
-                                        fig_name = f"{self.analysis_name}_{'S' + root[-1] + '_Phenograph_cluster'}.pdf")
-                elif self.typeclustering == "VIA":
-                    self.adata.obs['VIA_cluster'] = self.adata.obs['VIA_cluster'].astype('str')
-                    self.plot_stream(root = root, color = ['VIA_cluster'],
-                                        fig_path = plot_root_folder,
-                                        fig_name = f"{self.analysis_name}_{'S' + root[-1] + '_VIA_cluster'}.pdf")
-                elif self.typeclustering == "FlowSOM":
-                    self.adata.obs['MetaCluster_Flowsom'] = self.adata.obs['MetaCluster_Flowsom'].astype('str')
-                    self.plot_stream(root = root, color = ['MetaCluster_Flowsom'],
-                                        fig_path = plot_root_folder,
-                                        fig_name = f"{self.analysis_name}_{'S' + root[-1] + '_FlowSOM_cluster'}.pdf")
+                self.adata.obs['pheno_leiden'] = self.adata.obs['pheno_leiden'].astype('str')
+                self.plot_stream(root=root, color=['pheno_leiden'],
+                                 fig_path=plot_root_folder,
+                                 fig_name=f"{self.analysis_name}_{'S' + root[-1] + '_'+ self.typeclustering}.pdf")
                 # Plot pseudotime for the root
-                self.plot_stream(root = root, color = ['S' + root[-1] + '_pseudotime'],
-                                    fig_path = plot_root_folder,
-                                    fig_name = f"{self.analysis_name}_{'S' + root[-1] + '_pseudotime'}.pdf")
                 self.plot_stream(root = root, color = ['S' + root[-1] + '_pseudotime'],
                                  fig_path = plot_root_folder,
                                  fig_name = f"{self.analysis_name}_{'S' + root[-1] + '_pseudotime'}.pdf")
@@ -2287,33 +2253,20 @@ class StreamTrajectory:
             plot_root_folder = os.path.join(plot_tree_folder, root)
             if not os.path.exists(plot_root_folder):
                 os.makedirs(plot_root_folder)
-            if self.typeclustering == "Phenograph":
-                self.adata.obs['Phenograph_cluster'] = self.adata.obs['Phenograph_cluster'].astype('str')
-                self.plot_flat_tree(root = root, color = ['Phenograph_cluster'],
-                                    fig_path = plot_root_folder,
-                                    fig_name = f"{self.analysis_name}_{'S' + root[-1] + '_Phenograph_cluster'}.pdf")
-            elif self.typeclustering == "VIA":
-                self.adata.obs['VIA_cluster'] = self.adata.obs['VIA_cluster'].astype('str')
-                self.plot_flat_tree(root = root, color = ['VIA_cluster'],
-                                    fig_path = plot_root_folder,
-                                    fig_name = f"{self.analysis_name}_{'S' + root[-1] + '_VIA_cluster'}.pdf")
-            elif self.typeclustering == "FlowSOM":
-                self.adata.obs['MetaCluster_Flowsom'] = self.adata.obs['MetaCluster_Flowsom'].astype('str')
-                self.plot_flat_tree(root = root, color = ['MetaCluster_Flowsom'],
-                                    fig_path = plot_root_folder,
-                                    fig_name = f"{self.analysis_name}_{'S' + root[-1] + '_FlowSOM_cluster'}.pdf")
+            self.adata.obs['pheno_leiden'] = self.adata.obs['pheno_leiden'].astype('str')
+            self.plot_flat_tree(root=root, color=['pheno_leiden'],
+                                fig_path=plot_root_folder,
+                                fig_name=f"{self.analysis_name}_{'S' + root[-1] + '_'+ self.typeclustering}.pdf")
             # Plot pseudotime for the root
             self.plot_flat_tree(root = root, color = ['S' + root[-1] + '_pseudotime'],
                                 fig_path = plot_root_folder,
                                 fig_name = f"{self.analysis_name}_{'S' + root[-1] + '_pseudotime'}.pdf")
-
             # Plot for 'Cell_type', 'EXP', 'ID', 'Time_point', 'Condition', 'Count' in obs
             for feat in ['Cell_type', 'EXP', 'ID', 'Time_point', 'Condition', 'Count']:
                 if len(self.adata.obs[feat].unique()) > 1:
                     self.plot_flat_tree(root = root, color = [feat],
                                         fig_path = plot_root_folder,
                                         fig_name = f"{self.analysis_name}_{root}_{feat}.pdf")
-
             # Plot for each gene in var
         plot_tree_gene_folder = os.path.join(plot_tree_folder, "plot_flat_tree_markers")
         if not os.path.exists(plot_tree_gene_folder):
@@ -2791,33 +2744,20 @@ class StreamTrajectory:
             plot_root_folder = os.path.join(plot_stream_folder, root)
             if not os.path.exists(plot_root_folder):
                 os.makedirs(plot_root_folder)
-            if self.typeclustering == "Phenograph":
-                self.adata.obs['Phenograph_cluster'] = self.adata.obs['Phenograph_cluster'].astype('str')
-                self.plot_stream_sc(root = root, color = ['Phenograph_cluster'],
-                                 fig_path = plot_root_folder,
-                                 fig_name = f"{self.analysis_name}_{'S' + root[-1] + '_Phenograph_cluster'}.pdf")
-            elif self.typeclustering == "VIA":
-                self.adata.obs['VIA_cluster'] = self.adata.obs['VIA_cluster'].astype('str')
-                self.plot_stream_sc(root = root, color = ['VIA_cluster'],
-                                 fig_path = plot_root_folder,
-                                 fig_name = f"{self.analysis_name}_{'S' + root[-1] + '_VIA_cluster'}.pdf")
-            elif self.typeclustering == "FlowSOM":
-                self.adata.obs['MetaCluster_Flowsom'] = self.adata.obs['MetaCluster_Flowsom'].astype('str')
-                self.plot_stream_sc(root = root, color = ['MetaCluster_Flowsom'],
-                                    fig_path = plot_root_folder,
-                                    fig_name = f"{self.analysis_name}_{'S' + root[-1] + '_FlowSOM_cluster'}.pdf")
+            self.adata.obs['pheno_leiden'] = self.adata.obs['pheno_leiden'].astype('str')
+            self.plot_stream_sc(root=root, color=['pheno_leiden'],
+                                fig_path=plot_root_folder,
+                                fig_name=f"{self.analysis_name}_{'S' + root[-1] + '_' + self.typeclustering}.pdf")
             # Plot pseudotime for the root
             self.plot_stream_sc(root=root, color=['S' + root[-1] + '_pseudotime'],
                                 fig_path=plot_root_folder,
                                 fig_name=f"{self.analysis_name}_{'S' + root[-1] + '_pseudotime'}.pdf")
-
             # Plot for 'Cell_type', 'EXP', 'ID', 'Time_point', 'Condition', 'Count' in obs
             for feat in ['Cell_type', 'EXP', 'ID', 'Time_point', 'Condition', 'Count']:
                 if len(self.adata.obs[feat].unique()) > 1:
                     self.plot_stream_sc(root=root, color=[feat],
                                         fig_path=plot_root_folder,
                                         fig_name=f"{self.analysis_name}_{root}_{feat}.pdf")
-
             # Plot for each gene in var
             for gene in self.adata.var.index:
                 self.plot_stream_sc(root=root, color=[gene],
