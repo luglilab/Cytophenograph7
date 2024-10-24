@@ -9,6 +9,9 @@ import pyVIA.core as via
 import anndata as ad
 from LogClass import LoggerSetup
 import warnings
+import shap
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.model_selection import train_test_split
 warnings.filterwarnings("ignore")
 
 class Clustering:
@@ -90,10 +93,6 @@ class Clustering:
 
         # Update AnnData with clustering results
         self._update_results()
-
-        # Run additional analyses and visualizations if runtime is 'Full'
-        #if self.runtime == 'Full':
-        #    self._run_full_analysis()
 
         return self.adata
 
@@ -223,12 +222,37 @@ class Clustering:
         if 'X_umap' in self.adata.obsm:
             self.adataback.obsm['X_umap'] = self.adata.obsm['X_umap']
 
-    def _run_full_analysis(self):
-        """Runs additional analyses and visualizations if runtime is 'Full'."""
-        self.generation_concatenate()
-        self.plot_umap()
-        # self.plot_umap_expression()
-        self.plot_frequency()
-        self.plot_cell_clusters()
-        self.plot_cell_obs()
-        self.matrixplot()
+    def run_shap_explainability(self):
+        """
+        Perform explainability using SHAP for clustering results.
+        SHAP values will be computed to explain the clusters based on the gene expression data.
+        """
+        self.log.info("Running SHAP explainability for clustering results.")
+
+        # Prepare input and target for the classifier
+        X = self.adata.X  # Gene expression data
+        y = self.adata.obs['pheno_leiden'].cat.codes  # Convert categorical clusters to numeric
+
+        # Split data into training and testing sets
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42)
+
+        # Train a RandomForest classifier
+        model = RandomForestClassifier(n_estimators=100, random_state=42)
+        model.fit(X_train, y_train)
+
+        # Create a SHAP explainer for the model
+        explainer = shap.TreeExplainer(model)
+
+        # Compute SHAP values for the test set
+        shap_values = explainer.shap_values(X_test)
+
+        # Plot summary of SHAP values for each cluster (class)
+        shap.summary_plot(shap_values, X_test, feature_names=self.adata.var_names)
+
+        # Optionally, save SHAP summary plots per class/cluster
+        for i, cluster in enumerate(np.unique(y_test)):
+            shap.summary_plot(shap_values[i], X_test, feature_names=self.adata.var_names, show=False)
+            plt.savefig(f"{self.output_folder}/shap_summary_cluster_{cluster}.png")
+            plt.close()
+
+        self.log.info("SHAP explainability completed and plots saved.")

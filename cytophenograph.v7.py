@@ -105,6 +105,7 @@ def main():
         DictInfo["pathmarkerfile"], DictInfo["basenamemarkerfilepath"] = data_importer.loadmarkers()
         DictInfo["markertoexclude"] = data_importer.checkmarkers()
         DictInfo["markertoinclude"] = data_importer.splitmarker()
+        DictInfo["featuresplotted"] = data_importer.generate_combination_obs()
 
         # Initialize Clustering with necessary parameters
         clustering = Clustering(
@@ -159,6 +160,23 @@ def main():
             visualization.plot_cell_obs()
             visualization.matrixplot()
 
+            # Perform trajectory analysis if the user has requested it
+            if options.trajectory_analysis:
+                logger.info("Performing trajectory analysis...")
+                trajectory = StreamTrajectory(
+                    adata=DictInfo["clustered_adata"],
+                    output_folder=options.output_folder,
+                    tool='Phenograph',
+                    runtime=options.runtime,
+                    analysis_name=options.analysis_name
+                )
+                trajectory.seed_elastic_principal_graph()
+                trajectory.elastic_principal_graph()
+                trajectory.plot_stream_sc_all()
+                trajectory.plot_flat_tree_all()
+                trajectory.plot_stream_all()
+                trajectory.clean_uns()
+
             # Initialize Exporting for data exportation
             exporting = Exporting(
                 adata = DictInfo["clustered_adata"],
@@ -172,17 +190,6 @@ def main():
 
             # Run exporting method to save results
             exporting.exporting()
-            # Perform trajectory analysis if the user has requested it
-            if options.trajectory_analysis:
-                logger.info("Performing trajectory analysis...")
-                trajectory = StreamTrajectory(
-                    adata=DictInfo["clustered_adata"],
-                    output_folder=options.output_folder,
-                    tool = 'Phenograph',
-                    runtime = options.runtime,
-                    analysis_name = options.analysis_name
-                )
-                trajectory.elastic_principal_graph()
 
         elif options.runtime == 'UMAP':
             logger.info("Running UMAP specific operations...")

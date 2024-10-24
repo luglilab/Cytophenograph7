@@ -251,3 +251,46 @@ class DataImporter:
 
         # Generate a unique barcode for each row in the DataFrame
         return [f"{base_name}_{i}" for i in range(1, df.shape[0] + 1)]
+
+    def generate_combination_obs(self):
+        """
+        Generate new observation columns in obs for all possible combinations of
+        'Cell_type', 'EXP', 'ID', 'Time_point', and 'Condition', using 2 or 3 features,
+        only if all selected columns have more than one unique value.
+
+        Returns a list containing the original columns and new combination column names.
+        """
+        from itertools import combinations
+
+        # List of column names to combine
+        columns = ['Cell_type', 'EXP', 'ID', 'Time_point', 'Condition']
+
+        # Check if all necessary columns exist in obs
+        for col in columns:
+            if col not in self.adata.obs.columns:
+                self.log.error(f"Column {col} is missing in the AnnData object's obs.")
+                return
+
+        # Initialize list with the original columns
+        col_list = columns.copy()
+
+        # Generate combinations with 2 and 3 features
+        for r in [2, 3]:  # r=2 for two-feature combinations, r=3 for three-feature combinations
+            for combo in combinations(columns, r):
+                # Check if all columns in the combination have more than one unique value
+                if all(self.adata.obs[col].nunique() > 1 for col in combo):
+                    # Create a new obs column for each valid combination
+                    new_col_name = "_".join(combo)
+                    self.adata.obs[new_col_name] = self.adata.obs[combo[0]].astype(str)
+
+                    # Concatenate values for the other columns in the combination
+                    for col in combo[1:]:
+                        self.adata.obs[new_col_name] += "_" + self.adata.obs[col].astype(str)
+
+                    # Add the new column name to the list
+                    col_list.append(new_col_name)
+
+        self.log.info("New combination columns created in obs for all valid 2- and 3-feature combinations.")
+
+        return col_list
+

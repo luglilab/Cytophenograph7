@@ -2448,7 +2448,7 @@ class StreamTrajectory:
             file_path_S = os.path.join(fig_path, fig_name)
             if not os.path.exists(os.path.dirname(file_path_S)):
                 os.makedirs(os.path.dirname(file_path_S))
-            plt.savefig(file_path_S, pad_inches = 1, bbox_inches = 'tight', dpi = 300)
+            plt.savefig(file_path_S, pad_inches = 1, bbox_inches = 'tight', dpi = 100)
             plt.close(fig)
 
     def plot_flat_tree(self, root='S0', color=None, dist_scale=0.5,
@@ -2594,7 +2594,7 @@ class StreamTrajectory:
         # Save the figure
         if fig_name is None:
             fig_name = f"{self.analysis_name}_{root}_{color[0]}.pdf"
-        plt.savefig(os.path.join(fig_path, fig_name), pad_inches = 1, bbox_inches = 'tight', dpi = 300)
+        plt.savefig(os.path.join(fig_path, fig_name), pad_inches = 1, bbox_inches = 'tight', dpi = 100)
         plt.close(fig)
 
     def plot_stream_sc(self, root='S0', color=None, dist_scale=0.5, dist_pctl=95,
@@ -2730,29 +2730,50 @@ class StreamTrajectory:
             file_path_S = os.path.join(fig_path, fig_name)
             if not os.path.exists(os.path.dirname(file_path_S)):
                 os.makedirs(os.path.dirname(file_path_S))
-            plt.savefig(file_path_S, pad_inches=1, bbox_inches='tight', dpi=300)
+            plt.savefig(file_path_S, pad_inches=1, bbox_inches='tight', dpi=100)
             plt.close(fig)
 
-    def plot_stream_sc_all(self):
-        plot_stream_folder = os.path.join(self.Trajectory_folder, "plot_stream_sc")
-        if not os.path.exists(plot_stream_folder):
-            os.makedirs(plot_stream_folder)
-        all_roots = list(set(nx.get_node_attributes(self.adata.uns['flat_tree'], 'label').values()))
+    def clean_uns(self):
 
-        for _ in range(len(all_roots)):
-            root = all_roots[_]
+            self.adata.obs['branch_id'] = self.adata.obs['branch_id'].astype('str')
+            self.adata.obs['branch_id_alias'] = self.adata.obs['branch_id_alias'].astype('str')
+            # Delete all keys containing 'stream_S'
+            keys_to_delete = [key for key in self.adata.uns.keys() if "stream_S" in key]
+            for key in keys_to_delete:
+                del self.adata.uns[key]
+
+            # Delete specific keys
+            for key in ['flat_tree', 'seed_epg', 'seed_flat_tree', 'ori_epg', 'epg_obj', 'ori_epg_obj','epg']:
+                if key in self.adata.uns:
+                    del self.adata.uns[key]
+
+    def plot_stream_sc_all(self):
+        """
+        Plots the stream trajectories for different roots with multiple visualizations for each root.
+        It generates and saves plots for:
+        - Pheno Leiden clusters.
+        - Pseudotime for each root.
+        - Cell type, Experiment (EXP), ID, Time point, Condition, and Count (if applicable).
+        - Each gene in the AnnData object's variable index.
+        All plots are saved to the `plot_stream_sc` folder, with subfolders for each root.
+        Returns: None
+        """
+        plot_stream_folder = os.path.join(self.Trajectory_folder, "plot_stream_sc")
+        os.makedirs(plot_stream_folder, exist_ok=True)  # Create the folder if it doesn't exist
+        all_roots = list(set(nx.get_node_attributes(self.adata.uns['flat_tree'], 'label').values()))
+        self.adata.obs['pheno_leiden'] = self.adata.obs['pheno_leiden'].astype(str)  # Ensure type conversion before loop
+        for root in all_roots:
             plot_root_folder = os.path.join(plot_stream_folder, root)
-            if not os.path.exists(plot_root_folder):
-                os.makedirs(plot_root_folder)
-            self.adata.obs['pheno_leiden'] = self.adata.obs['pheno_leiden'].astype('str')
+            os.makedirs(plot_root_folder, exist_ok=True)  # Create folder for each root
+            # Plot Pheno Leiden clusters
             self.plot_stream_sc(root=root, color=['pheno_leiden'],
                                 fig_path=plot_root_folder,
-                                fig_name=f"{self.analysis_name}_{'S' + root[-1] + '_' + self.typeclustering}.pdf")
-            # Plot pseudotime for the root
-            self.plot_stream_sc(root=root, color=['S' + root[-1] + '_pseudotime'],
+                                fig_name=f"{self.analysis_name}_S{root[-1]}_{self.typeclustering}.pdf")
+            # Plot pseudotime for the current root
+            self.plot_stream_sc(root=root, color=[f'S{root[-1]}_pseudotime'],
                                 fig_path=plot_root_folder,
-                                fig_name=f"{self.analysis_name}_{'S' + root[-1] + '_pseudotime'}.pdf")
-            # Plot for 'Cell_type', 'EXP', 'ID', 'Time_point', 'Condition', 'Count' in obs
+                                fig_name=f"{self.analysis_name}_S{root[-1]}_pseudotime.pdf")
+            # Plot for 'Cell_type', 'EXP', 'ID', 'Time_point', 'Condition', 'Count' in obs if feature has more than 1 unique value
             for feat in ['Cell_type', 'EXP', 'ID', 'Time_point', 'Condition', 'Count']:
                 if len(self.adata.obs[feat].unique()) > 1:
                     self.plot_stream_sc(root=root, color=[feat],
@@ -2762,4 +2783,4 @@ class StreamTrajectory:
             for gene in self.adata.var.index:
                 self.plot_stream_sc(root=root, color=[gene],
                                     fig_path=plot_root_folder,
-                                    fig_name=f"{self.analysis_name}_{'S' + root[-1] + '_' + gene}.pdf")
+                                    fig_name=f"{self.analysis_name}_S{root[-1]}_{gene}.pdf")
