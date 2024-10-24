@@ -42,17 +42,16 @@ class Grouping:
         self.createdir("/".join([self.output_folder, "".join(["Cluster", self.tool])]))
 
         # Restore original data
-        self.adata = self.adataback
-        self.adata.obs['cluster'] = self.adata.obs['cluster'].astype(int)
-        self.adata.X = self.adata.layers['raw_value']
+        self.adata_original =self.adata.raw.to_adata()
+        self.adata_original.obs['cluster'] = self.adata_original.obs['cluster'].astype(int)
         # Iterate through each unique cluster
-        for cluster in range(self.adata.obs['cluster'].unique().min(), self.adata.obs['cluster'].unique().max() + 1):
-            self.tmp = self.adata[self.adata.obs['cluster'] == cluster].to_df().astype(int)
+        for cluster in range(self.adata_original.obs['cluster'].unique().min(), self.adata_original.obs['cluster'].unique().max() + 1):
+            self.tmp = self.adata_original[self.adata_original.obs['cluster'] == cluster].to_df().astype(int)
 
             # Add UMAP coordinates if in 'Full' mode
             if self.runtime == 'Full':
-                pd.merge(self.tmp, pd.DataFrame(self.adata.obsm['X_umap'], index = self.adata.obs_names,
-                                   columns = ['UMAP_1', 'UMAP_2']),left_index = True,right_index = True),
+                self.tmp = pd.merge(self.tmp, pd.DataFrame(self.adata_original.obsm['X_umap'], index = self.adata_original.obs_names,
+                                   columns = ['UMAP_1', 'UMAP_2']),left_index = True,right_index = True)
             # Add tool-specific cluster information
             if self.tool == "Phenograph":
                 self.tmp['Phenograph'] = cluster
@@ -77,25 +76,25 @@ class Grouping:
         self.createdir("/".join([self.output_folder, "".join(["Sample", self.tool])]))
 
         # Prepare data
-        self.tmp = self.adata.to_df().astype(int)
+        self.tmp = self.adata_original.to_df().astype(int)
         self.tmp.set_index(self.adata.obs['Sample'], inplace = True)
 
         if self.runtime != 'UMAP':
-            self.adata.obs['cluster'] = self.adata.obs['cluster'].astype(int)
+            self.adata_original.obs['cluster'] = self.adata_original.obs['cluster'].astype(int)
             self.createdir("/".join([self.output_folder, "".join(["ClusterFrequency", self.tool])]))
 
         # Add UMAP coordinates if not in 'Clustering' mode
         if self.runtime != 'Clustering':
-            self.tmp['UMAP_1'] = self.adata.obsm['X_umap'][:, 0]
-            self.tmp['UMAP_2'] = self.adata.obsm['X_umap'][:, 1]
+            self.tmp['UMAP_1'] = self.adata_original.obsm['X_umap'][:, 0]
+            self.tmp['UMAP_2'] = self.adata_original.obsm['X_umap'][:, 1]
 
         if self.runtime != 'UMAP':
-            self.tmp[self.tool] = self.adata.obs['cluster'].values
-            self.tmp["cluster"] = self.adata.obs['cluster'].values
+            self.tmp[self.tool] = self.adata_original.obs['cluster'].values
+            self.tmp["cluster"] = self.adata_original.obs['cluster'].values
 
             # Unique filenames and clusters
-            unique_filenames = self.adata.obs['Sample'].unique()
-            unique_clusters = self.adata.obs['cluster'].unique()
+            unique_filenames = self.adata_original.obs['Sample'].unique()
+            unique_clusters = self.adata_original.obs['cluster'].unique()
 
             # Generate cluster frequency and count files
             self._generate_cluster_frequency_and_count(unique_clusters, unique_filenames)
@@ -153,7 +152,7 @@ class Grouping:
         """
         Helper function to export samples without clustering information.
         """
-        unique_filenames = self.adata.obs['Sample'].unique()
+        unique_filenames = self.adata_original.obs['Sample'].unique()
         for filename in unique_filenames:
             sample_data = self.tmp.loc[self.tmp.index == filename]
             sample_path = "/".join(

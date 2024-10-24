@@ -8,7 +8,6 @@ from PrintLogoClass import PrintLogo
 from GroupingClass import Grouping
 from ExportingClass import Exporting
 from LogClass import LoggerSetup  # Correct import from ClassLog
-import warnings
 from StreamClass import StreamTrajectory
 import traceback
 
@@ -24,7 +23,7 @@ def parse_arguments():
     )
     parser.add_option('-a', action = "store_true", dest = "arcsin", default = False,
                       help = 'Perform arcsinh transformation on data.')
-    parser.add_option('-b', action = "store_false", dest = "batch", default = False,
+    parser.add_option('-b', action = "store_true", dest = "batch_bool", default = False,
                       help = 'Perform batch correction with cyCombine.')
     parser.add_option('-c', type = 'choice', choices = ['Phenograph', 'VIA', 'FlowSOM'], dest = "clustering",
                       default = "Phenograph",
@@ -119,6 +118,7 @@ def main():
             thread = options.thread,
             runtime = options.runtime,
             batchcov = options.batchcov,
+            batch = options.batch_bool,
             root_user = [1],
             fnull = open(os.devnull, 'w'),
             path_cycombine = os.path.dirname(os.path.realpath(__file__)) + '/cycombine.Rscript',

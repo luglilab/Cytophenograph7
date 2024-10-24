@@ -11,19 +11,23 @@ from LogClass import LoggerSetup
 import warnings
 import shap
 import fasttreeshap
+import os
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
 import numpy as np
-warnings.filterwarnings("ignore")
+import seaborn as sns
 import matplotlib.pyplot as plt
 from matplotlib.colors import ListedColormap
+
+warnings.filterwarnings("ignore")
 
 class Clustering:
     """
     A class responsible for performing clustering on single-cell data using different methods.
     """
 
-    def __init__(self, adata, output_folder, method, k_coef, knn, resolution, maxclus, thread, runtime, batchcov, root_user, fnull, path_cycombine,
+    def __init__(self, adata, output_folder, method, k_coef, knn, resolution, maxclus, thread, runtime, batchcov, batch,
+                 root_user, fnull, path_cycombine,
                  markertoinclude,marker_array):
         """
         Initialize the Clustering class with the given parameters.
@@ -52,6 +56,7 @@ class Clustering:
         self.thread = thread
         self.runtime = runtime
         self.batchcov = batchcov
+        self.batchbool = batch
         self.root_user = root_user
         self.fnull = fnull
         self.path_cycombine = path_cycombine
@@ -79,7 +84,7 @@ class Clustering:
         self._prepare_data()
 
         # Perform batch correction if specified
-        if self.batchcov is True:
+        if self.batchbool is True:
             self._batch_correction()
 
         # Standardize data
@@ -99,6 +104,14 @@ class Clustering:
         self._update_results()
 
         return self.adata
+
+    def _createdir(self, directory):
+        """
+        Helper function to create a directory if it doesn't exist.
+        :param directory: The path of the directory to create.
+        """
+        if not os.path.exists(directory):
+            os.makedirs(directory)
 
     def _log_markers(self):
         """Logs markers used and excluded for clustering."""
@@ -262,9 +275,6 @@ class Clustering:
         # Subset the AnnData object to include only the selected cells
         self.new_adata = self.adata[selected_indices].copy()
 
-    import matplotlib.pyplot as plt
-    import shap
-
     def run_shap_explainability(self, cell_idx=None):
         """
         Perform explainability using fasttreeshap for clustering results.
@@ -273,6 +283,8 @@ class Clustering:
         :param cell_idx: (optional) Index of the cell to plot waterfall SHAP values for. If None, a random cell will be selected.
         """
         self.log.info("Running SHAP explainability for clustering results.")
+        self._folder = "/".join([self.output_folder, "Explainability"])
+        self._createdir(self._folder)
 
         try:
             # Prepare input and target for the classifier
@@ -306,31 +318,37 @@ class Clustering:
         try:
             # Plot and save summary of SHAP values for all clusters
             self.log.info("Generating and saving SHAP summary plot.")
+
+            # Let SHAP manage colors automatically
             shap.summary_plot(shap_values, X_test, feature_names=self.adata.var_names, show=False)
 
             # Set facecolor to white, remove grid, and save as PDF
             plt.gcf().set_facecolor('white')
             plt.gca().grid(False)  # Remove the grey grid
-            plt.savefig(f"{self.output_folder}/shap_summary_all_clusters.pdf", format='pdf', facecolor='white')
+            plt.savefig(f"{self._folder}/shap_summary_all_clusters.pdf", format='pdf', facecolor='white')
             plt.close()
 
             # Optionally, save SHAP summary plots per class/cluster with cluster names
             self.log.info("Saving SHAP plots for individual clusters.")
             for i, cluster in enumerate(np.unique(y_test)):
-                cluster_label = f"Cluster {i + 1}"  # Replace class labels with Cluster 1 to N
+                cluster_label = f"Cluster_{i + 1}"  # Replace class labels with Cluster 1 to N
                 shap.summary_plot(shap_values[i], X_test, feature_names=self.adata.var_names, show=False)
 
                 # Set facecolor to white, remove grid, and save as PDF
                 plt.gcf().set_facecolor('white')
                 plt.gca().grid(False)  # Remove the grey grid
                 plt.title(cluster_label)  # Update the title to use 'Cluster X'
-                plt.savefig(f"{self.output_folder}/shap_summary_{cluster_label}.pdf", format='pdf', facecolor='white')
+                plt.savefig(f"{self._folder}/shap_summary_{cluster_label}.pdf", format='pdf', facecolor='white')
                 plt.close()
 
             self.log.info("SHAP explainability completed and plots saved.")
 
         except Exception as e:
+            # import traceback
+            # print(traceback.format_exc())
             self.log.error(f"Error during SHAP plotting or saving: {e}")
+
+
 
 
 
