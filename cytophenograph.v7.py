@@ -139,12 +139,14 @@ def main():
                 output_folder = options.output_folder,
                 tool = options.clustering,
                 analysis_name = options.analysis_name,
+                listfeature= DictInfo["featuresplotted"],
                 runtime = options.runtime
             )
 
             # Execute grouping methods
             grouping.groupbycluster()
             grouping.groupbysample()
+            # grouping.generate_balloon_plot()
 
             # Initialize Visualization to generate plots and visual analysis
             visualization = Visualization(
