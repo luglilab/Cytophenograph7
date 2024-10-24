@@ -224,9 +224,6 @@ class StreamTrajectory:
         """Seeding the initial elastic principal graph."""
 
         print('Seeding initial elastic principal graph...')
-        print(self.adata)
-        print(self.adata.obs)
-        print(self.adata.var)
         input_data = self.adata.obsm[emb]
         if nb_pct is not None:
             n_neighbors = int(np.around(input_data.shape[0] * nb_pct))
@@ -2748,16 +2745,14 @@ class StreamTrajectory:
                     del self.adata.uns[key]
 
     def plot_stream_sc_all(self):
-        """
-        Plots the stream trajectories for different roots with multiple visualizations for each root.
+        """ Plots the stream trajectories for different roots with multiple visualizations for each root.
         It generates and saves plots for:
         - Pheno Leiden clusters.
         - Pseudotime for each root.
         - Cell type, Experiment (EXP), ID, Time point, Condition, and Count (if applicable).
         - Each gene in the AnnData object's variable index.
         All plots are saved to the `plot_stream_sc` folder, with subfolders for each root.
-        Returns: None
-        """
+        Returns: None """
         plot_stream_folder = os.path.join(self.Trajectory_folder, "plot_stream_sc")
         os.makedirs(plot_stream_folder, exist_ok=True)  # Create the folder if it doesn't exist
         all_roots = list(set(nx.get_node_attributes(self.adata.uns['flat_tree'], 'label').values()))

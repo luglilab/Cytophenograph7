@@ -24,7 +24,7 @@ def parse_arguments():
     )
     parser.add_option('-a', action = "store_true", dest = "arcsin", default = False,
                       help = 'Perform arcsinh transformation on data.')
-    parser.add_option('-b', action = "store_true", dest = "batch", default = False,
+    parser.add_option('-b', action = "store_false", dest = "batch", default = False,
                       help = 'Perform batch correction with cyCombine.')
     parser.add_option('-c', type = 'choice', choices = ['Phenograph', 'VIA', 'FlowSOM'], dest = "clustering",
                       default = "Phenograph",
@@ -129,6 +129,9 @@ def main():
         # Perform clustering and analysis based on runtime option
         if options.runtime != 'UMAP':
             DictInfo["clustered_adata"] = clustering.runclustering()
+            DictInfo["clustered_adata_subsetted"] = clustering.subset_adata_by_cluster()
+            clustering.run_shap_explainability()
+
 
             # Initialize Grouping for organizing data by cluster or sample
             grouping = Grouping(

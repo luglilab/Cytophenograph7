@@ -10,9 +10,13 @@ import anndata as ad
 from LogClass import LoggerSetup
 import warnings
 import shap
+import fasttreeshap
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
+import numpy as np
 warnings.filterwarnings("ignore")
+import matplotlib.pyplot as plt
+from matplotlib.colors import ListedColormap
 
 class Clustering:
     """
@@ -110,10 +114,12 @@ class Clustering:
     def _prepare_data(self):
         """Subsets AnnData, adds an index column, and saves data for batch correction."""
         self.adata.raw = self.adata
-        self.adata = self.adata[:, self.markertoinclude]
+        self.adata.var['highly_variable'] = False
+        self.adata.var.loc[self.markertoinclude, 'highly_variable'] = True
+        self.adata = self.adata[:, self.adata.var.highly_variable]
+        #self.adata = self.adata[:, self.markertoinclude]
         self.adata.var['n'] = range(len(self.adata.var))
-
-        data_df = self.adata[:, self.markertoinclude].to_df()
+        data_df = self.adata.to_df()
         data_df['batch'] = self.adata.obs[self.batchcov]
         data_df.to_csv(f"{self.output_folder}/tmp.csv", index=False)
 
@@ -222,37 +228,110 @@ class Clustering:
         if 'X_umap' in self.adata.obsm:
             self.adataback.obsm['X_umap'] = self.adata.obsm['X_umap']
 
-    def run_shap_explainability(self):
+    def subset_adata_by_cluster(self, cluster_key="pheno_leiden", fraction=0.1, random_state=42):
         """
-        Perform explainability using SHAP for clustering results.
+        Subset an AnnData object to include only a fraction of cells from each cluster, with reproducibility.
+
+        :param cluster_key: The name of the column in adata.obs that contains the cluster assignments.
+        :param fraction: The fraction of cells to sample from each cluster.
+        :param random_state: The seed for random number generation to ensure reproducibility.
+        :return: A new AnnData object containing only the sampled cells.
+        """
+        np.random.seed(random_state)  # Set the random seed for reproducibility
+
+        # Get the unique clusters
+        clusters = self.adata.obs[cluster_key].unique()
+
+        # Initialize an empty list to hold the indices of the selected cells
+        selected_indices = []
+
+        # For each cluster, randomly sample the specified fraction of cells
+        for cluster in clusters:
+            # Get the indices of the cells in the current cluster
+            cluster_indices = self.adata.obs[self.adata.obs[cluster_key] == cluster].index.tolist()
+
+            # Determine how many cells to sample (fraction of the cluster)
+            sample_size = max(1, int(len(cluster_indices) * fraction))  # Ensure at least one cell is selected
+
+            # Randomly sample the cells with the set seed
+            sampled_indices = np.random.choice(cluster_indices, size=sample_size, replace=False)
+
+            # Add the sampled indices to the list of selected indices
+            selected_indices.extend(sampled_indices)
+
+        # Subset the AnnData object to include only the selected cells
+        self.new_adata = self.adata[selected_indices].copy()
+
+    import matplotlib.pyplot as plt
+    import shap
+
+    def run_shap_explainability(self, cell_idx=None):
+        """
+        Perform explainability using fasttreeshap for clustering results.
         SHAP values will be computed to explain the clusters based on the gene expression data.
+
+        :param cell_idx: (optional) Index of the cell to plot waterfall SHAP values for. If None, a random cell will be selected.
         """
         self.log.info("Running SHAP explainability for clustering results.")
 
-        # Prepare input and target for the classifier
-        X = self.adata.X  # Gene expression data
-        y = self.adata.obs['pheno_leiden'].cat.codes  # Convert categorical clusters to numeric
+        try:
+            # Prepare input and target for the classifier
+            X = self.new_adata.X  # Gene expression data
+            y = self.new_adata.obs['pheno_leiden'].cat.codes  # Convert categorical clusters to numeric
 
-        # Split data into training and testing sets
-        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42)
+            # Split data into training and testing sets
+            X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42)
 
-        # Train a RandomForest classifier
-        model = RandomForestClassifier(n_estimators=100, random_state=42)
-        model.fit(X_train, y_train)
+            # Train a RandomForest classifier
+            self.log.info("Training RandomForest classifier for SHAP.")
+            model = RandomForestClassifier(n_estimators=100, random_state=42, n_jobs=self.thread)
+            model.fit(X_train, y_train)
 
-        # Create a SHAP explainer for the model
-        explainer = shap.TreeExplainer(model)
+        except Exception as e:
+            self.log.error(f"Error during model training: {e}")
+            return
 
-        # Compute SHAP values for the test set
-        shap_values = explainer.shap_values(X_test)
+        try:
+            # Create a fasttreeshap explainer for the model
+            self.log.info("Creating fasttreeshap explainer and computing SHAP values.")
+            explainer = fasttreeshap.TreeExplainer(model, algorithm='auto', n_jobs=self.thread)
 
-        # Plot summary of SHAP values for each cluster (class)
-        shap.summary_plot(shap_values, X_test, feature_names=self.adata.var_names)
+            # Compute SHAP values for the test set
+            shap_values = explainer.shap_values(X_test)
 
-        # Optionally, save SHAP summary plots per class/cluster
-        for i, cluster in enumerate(np.unique(y_test)):
-            shap.summary_plot(shap_values[i], X_test, feature_names=self.adata.var_names, show=False)
-            plt.savefig(f"{self.output_folder}/shap_summary_cluster_{cluster}.png")
+        except Exception as e:
+            self.log.error(f"Error during SHAP value computation: {e}")
+            return
+
+        try:
+            # Plot and save summary of SHAP values for all clusters
+            self.log.info("Generating and saving SHAP summary plot.")
+            shap.summary_plot(shap_values, X_test, feature_names=self.adata.var_names, show=False)
+
+            # Set facecolor to white, remove grid, and save as PDF
+            plt.gcf().set_facecolor('white')
+            plt.gca().grid(False)  # Remove the grey grid
+            plt.savefig(f"{self.output_folder}/shap_summary_all_clusters.pdf", format='pdf', facecolor='white')
             plt.close()
 
-        self.log.info("SHAP explainability completed and plots saved.")
+            # Optionally, save SHAP summary plots per class/cluster with cluster names
+            self.log.info("Saving SHAP plots for individual clusters.")
+            for i, cluster in enumerate(np.unique(y_test)):
+                cluster_label = f"Cluster {i + 1}"  # Replace class labels with Cluster 1 to N
+                shap.summary_plot(shap_values[i], X_test, feature_names=self.adata.var_names, show=False)
+
+                # Set facecolor to white, remove grid, and save as PDF
+                plt.gcf().set_facecolor('white')
+                plt.gca().grid(False)  # Remove the grey grid
+                plt.title(cluster_label)  # Update the title to use 'Cluster X'
+                plt.savefig(f"{self.output_folder}/shap_summary_{cluster_label}.pdf", format='pdf', facecolor='white')
+                plt.close()
+
+            self.log.info("SHAP explainability completed and plots saved.")
+
+        except Exception as e:
+            self.log.error(f"Error during SHAP plotting or saving: {e}")
+
+
+
+
